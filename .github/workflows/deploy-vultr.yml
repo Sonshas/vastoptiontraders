@@ -1,0 +1,97 @@
+name: Deploy to Vultr
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Validate client configuration
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_MEGAPAY_KES_PER_USD: ${{ vars.VITE_MEGAPAY_KES_PER_USD }}
+        run: |
+          test -n "$VITE_SUPABASE_URL" || { echo "Missing Actions variable VITE_SUPABASE_URL"; exit 1; }
+          test -n "$VITE_SUPABASE_PUBLISHABLE_KEY" || { echo "Missing Actions variable VITE_SUPABASE_PUBLISHABLE_KEY"; exit 1; }
+          node -e 'if (!Number.isFinite(Number(process.env.VITE_MEGAPAY_KES_PER_USD)) || Number(process.env.VITE_MEGAPAY_KES_PER_USD) <= 0) process.exit(1)' || { echo "Set Actions variable VITE_MEGAPAY_KES_PER_USD to a positive fixed rate"; exit 1; }
+
+      - name: Build Node server
+        run: npm run build
+        env:
+          NITRO_PRESET: node-server
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_MEGAPAY_KES_PER_USD: ${{ vars.VITE_MEGAPAY_KES_PER_USD }}
+
+      - name: Build and package container
+        run: |
+          docker build --tag "vastoptiontraders:${GITHUB_SHA}" .
+          docker save "vastoptiontraders:${GITHUB_SHA}" | gzip > "$RUNNER_TEMP/vastoptiontraders.tar.gz"
+
+      - name: Configure Vultr SSH
+        env:
+          VULTR_SSH_PRIVATE_KEY: ${{ secrets.VULTR_SSH_PRIVATE_KEY }}
+          VULTR_KNOWN_HOSTS: ${{ secrets.VULTR_KNOWN_HOSTS }}
+        run: |
+          test -n "$VULTR_SSH_PRIVATE_KEY"
+          test -n "$VULTR_KNOWN_HOSTS"
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$VULTR_SSH_PRIVATE_KEY" > "$HOME/.ssh/vultr_deploy"
+          chmod 600 "$HOME/.ssh/vultr_deploy"
+          printf '%s\n' "$VULTR_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+
+      - name: Copy image to Vultr
+        env:
+          VULTR_HOST: ${{ secrets.VULTR_HOST }}
+          VULTR_USER: ${{ secrets.VULTR_USER }}
+        run: |
+          test -n "$VULTR_HOST"
+          test -n "$VULTR_USER"
+          scp -i "$HOME/.ssh/vultr_deploy" "$RUNNER_TEMP/vastoptiontraders.tar.gz" "$VULTR_USER@$VULTR_HOST:/tmp/vastoptiontraders-${GITHUB_SHA}.tar.gz"
+
+      - name: Deploy container on Vultr
+        env:
+          VULTR_HOST: ${{ secrets.VULTR_HOST }}
+          VULTR_USER: ${{ secrets.VULTR_USER }}
+        run: |
+          ssh -i "$HOME/.ssh/vultr_deploy" "$VULTR_USER@$VULTR_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          set -euo pipefail
+          release="$1"
+          image="vastoptiontraders:$release"
+          env_file="/etc/vastoptiontraders.env"
+          archive="/tmp/vastoptiontraders-$release.tar.gz"
+          test -f "$env_file"
+          for name in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SERVICE_ROLE_KEY MEGAPAY_API_KEY MEGAPAY_EMAIL; do
+            grep -Eq "^${name}=.+$" "$env_file" || { echo "Missing $name in $env_file"; exit 1; }
+          done
+          docker load -i "$archive"
+          docker rm -f vastoptiontraders >/dev/null 2>&1 || true
+          docker run -d --name vastoptiontraders --restart unless-stopped \
+            --env-file "$env_file" \
+            -e HOST=0.0.0.0 -e PORT=3000 \
+            -p 3000:3000 "$image"
+          rm -f "$archive"
+          docker image prune -f
+          REMOTE
