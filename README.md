@@ -60,6 +60,5 @@ Add these Actions variables for the client build:
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 - `VITE_MEGAPAY_KES_PER_USD`
 - `VULTR_DOMAIN`: public HTTPS hostname (for example, `vastoptionmarkets.com`)
-- `VULTR_HOST`: `139.84.245.49`
 
 On the VPS, set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `MEGAPAY_API_KEY`, and `MEGAPAY_EMAIL` in `/etc/vastoptiontraders.env`, preserving mode 640. Do not commit `.env` or place server secrets in Actions variables. The workflow tests a candidate container against `/api/health` (which performs a read-only Supabase query), rolls back if the new release fails its health check, and verifies the public HTTPS endpoint. Database schema migrations remain a one-time Supabase setup and are not automatically applied by deployment. After setup, run the workflow manually from the Actions tab.
