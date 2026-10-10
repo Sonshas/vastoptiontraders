@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791349509662,
+      "tag": "0000_practice_trading",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791441139022,
+      "tag": "0001_admin_panel",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791441184999,
+      "tag": "0002_auto_admin_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791443050105,
+      "tag": "0003_withdrawal_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791443177960,
+      "tag": "0004_user_deposit_requests",
+      "breakpoints": true
+    }
+  ]
+}
