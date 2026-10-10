@@ -61,14 +61,14 @@ jobs:
       - name: Configure Vultr SSH
         env:
           VULTR_SSH_PRIVATE_KEY: ${{ secrets.VULTR_SSH_PRIVATE_KEY }}
-          VULTR_KNOWN_HOSTS: ${{ secrets.VULTR_KNOWN_HOSTS }}
+          VULTR_KNOWN_HOST: ${{ secrets.VULTR_KNOWN_HOST }}
         run: |
           test -n "$VULTR_SSH_PRIVATE_KEY"
-          test -n "$VULTR_KNOWN_HOSTS"
+          test -n "$VULTR_KNOWN_HOST"
           install -m 700 -d "$HOME/.ssh"
           printf '%s\n' "$VULTR_SSH_PRIVATE_KEY" > "$HOME/.ssh/vultr_deploy"
           chmod 600 "$HOME/.ssh/vultr_deploy"
-          printf '%s\n' "$VULTR_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$VULTR_KNOWN_HOST" > "$HOME/.ssh/known_hosts"
 
       - name: Copy image to Vultr
         env:

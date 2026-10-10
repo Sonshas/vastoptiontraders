@@ -52,7 +52,7 @@ Add these GitHub repository Actions secrets:
 
 - `VULTR_USER`: SSH deploy username
 - `VULTR_SSH_PRIVATE_KEY`: private key whose public key is authorized on the VPS
-- `VULTR_KNOWN_HOSTS`: pinned SSH host-key line for the VPS
+- `VULTR_KNOWN_HOST`: pinned SSH host-key line for the VPS
 
 Add these Actions variables for the client build:
 
