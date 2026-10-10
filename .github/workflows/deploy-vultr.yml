@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: vultr-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -32,10 +36,12 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_MEGAPAY_KES_PER_USD: ${{ vars.VITE_MEGAPAY_KES_PER_USD }}
+          VULTR_DOMAIN: ${{ vars.VULTR_DOMAIN }}
         run: |
           test -n "$VITE_SUPABASE_URL" || { echo "Missing Actions variable VITE_SUPABASE_URL"; exit 1; }
           test -n "$VITE_SUPABASE_PUBLISHABLE_KEY" || { echo "Missing Actions variable VITE_SUPABASE_PUBLISHABLE_KEY"; exit 1; }
           node -e 'if (!Number.isFinite(Number(process.env.VITE_MEGAPAY_KES_PER_USD)) || Number(process.env.VITE_MEGAPAY_KES_PER_USD) <= 0) process.exit(1)' || { echo "Set Actions variable VITE_MEGAPAY_KES_PER_USD to a positive fixed rate"; exit 1; }
+          [[ "$VULTR_DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "Set Actions variable VULTR_DOMAIN to the HTTPS hostname"; exit 1; }
 
       - name: Build Node server
         run: npm run build
@@ -75,6 +81,7 @@ jobs:
         env:
           VULTR_HOST: ${{ secrets.VULTR_HOST }}
           VULTR_USER: ${{ secrets.VULTR_USER }}
+          VULTR_DOMAIN: ${{ vars.VULTR_DOMAIN }}
         run: |
           ssh -i "$HOME/.ssh/vultr_deploy" "$VULTR_USER@$VULTR_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
           set -euo pipefail
@@ -83,15 +90,65 @@ jobs:
           env_file="/etc/vastoptiontraders.env"
           archive="/tmp/vastoptiontraders-$release.tar.gz"
           test -f "$env_file"
+          test "$(stat -c '%a' "$env_file")" = "640" || { echo "Set $env_file permissions to 640"; exit 1; }
           for name in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY SUPABASE_SERVICE_ROLE_KEY MEGAPAY_API_KEY MEGAPAY_EMAIL; do
             grep -Eq "^${name}=.+$" "$env_file" || { echo "Missing $name in $env_file"; exit 1; }
           done
           docker load -i "$archive"
-          docker rm -f vastoptiontraders >/dev/null 2>&1 || true
-          docker run -d --name vastoptiontraders --restart unless-stopped \
+          docker rm -f vastoptiontraders-candidate >/dev/null 2>&1 || true
+          docker run -d --name vastoptiontraders-candidate --restart unless-stopped \
             --env-file "$env_file" \
             -e HOST=0.0.0.0 -e PORT=3000 \
-            -p 3000:3000 "$image"
+            -p 127.0.0.1:3001:3000 "$image"
+          healthy=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3001/api/health >/dev/null; then healthy=true; break; fi
+            sleep 2
+          done
+          if [ "$healthy" != true ]; then
+            docker logs --tail 80 vastoptiontraders-candidate || true
+            docker rm -f vastoptiontraders-candidate >/dev/null 2>&1 || true
+            echo "Candidate app or Supabase database health check failed; current release was kept."
+            exit 1
+          fi
+          docker rm -f vastoptiontraders-candidate >/dev/null
+          docker rm -f vastoptiontraders-previous >/dev/null 2>&1 || true
+          if docker container inspect vastoptiontraders >/dev/null 2>&1; then
+            docker stop vastoptiontraders >/dev/null
+            docker rename vastoptiontraders vastoptiontraders-previous
+          fi
+          if ! docker run -d --name vastoptiontraders --restart unless-stopped \
+            --env-file "$env_file" \
+            -e HOST=0.0.0.0 -e PORT=3000 \
+            -p 127.0.0.1:3000:3000 "$image"; then
+            if docker container inspect vastoptiontraders-previous >/dev/null 2>&1; then
+              docker rename vastoptiontraders-previous vastoptiontraders
+              docker start vastoptiontraders >/dev/null
+            fi
+            echo "New release failed to start; previous release was restored."
+            exit 1
+          fi
+          healthy=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3000/api/health >/dev/null; then healthy=true; break; fi
+            sleep 2
+          done
+          if [ "$healthy" != true ]; then
+            docker logs --tail 80 vastoptiontraders || true
+            docker rm -f vastoptiontraders >/dev/null 2>&1 || true
+            if docker container inspect vastoptiontraders-previous >/dev/null 2>&1; then
+              docker rename vastoptiontraders-previous vastoptiontraders
+              docker start vastoptiontraders >/dev/null
+            fi
+            echo "New release health check failed; previous release was restored."
+            exit 1
+          fi
           rm -f "$archive"
+          docker rm -f vastoptiontraders-previous >/dev/null 2>&1 || true
           docker image prune -f
           REMOTE
+
+      - name: Verify public HTTPS and database health
+        env:
+          VULTR_DOMAIN: ${{ vars.VULTR_DOMAIN }}
+        run: curl --fail --show-error --silent --retry 12 --retry-delay 5 "https://$VULTR_DOMAIN/api/health"

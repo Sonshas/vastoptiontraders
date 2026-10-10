@@ -1,0 +1,18 @@
+import { createFileRoute } from '@tanstack/react-router';
+
+export const Route = createFileRoute('/api/health')({
+  server: {
+    handlers: {
+      GET: async () => {
+        try {
+          const { supabaseAdmin } = await import('@/integrations/supabase/client.server');
+          const { error } = await supabaseAdmin.from('site_settings').select('key').limit(1);
+          if (error) throw error;
+          return Response.json({ status: 'ok' }, { headers: { 'Cache-Control': 'no-store' } });
+        } catch {
+          return Response.json({ status: 'unavailable' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+        }
+      },
+    },
+  },
+});
