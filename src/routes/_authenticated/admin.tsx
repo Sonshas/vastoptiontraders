@@ -48,7 +48,7 @@ function AdminPage() {
     const { data, error } = await supabase.from('withdrawal_requests').select('*').order('created_at', { ascending: false }).limit(200);
     if (error) throw error; return data;
   } });
-  const [form, setForm] = useState({ userId: '', amount: '', method: 'PayHero M-Pesa', status: 'completed', note: '' });
+  const [form, setForm] = useState({ userId: '', amount: '', method: 'MegaPay M-Pesa', status: 'completed', note: '' });
   const [saving, setSaving] = useState(false);
   const siteName = useSiteName();
   const [nameDraft, setNameDraft] = useState('');
@@ -119,7 +119,7 @@ function AdminPage() {
   const pending = (deposits.data ?? []).filter(d => d.status === 'pending').length;
 
   return <><SiteHeader /><main className="container-wide py-8 pb-28 space-y-8">
-    <header><p className="section-kicker">ADMIN</p><h1 className="text-3xl font-bold">Admin panel</h1><p className="text-muted-foreground text-sm mt-1">Review live PayHero deposits and withdrawal requests, then approve or reject them as needed.</p></header>
+    <header><p className="section-kicker">ADMIN</p><h1 className="text-3xl font-bold">Admin panel</h1><p className="text-muted-foreground text-sm mt-1">Review MegaPay deposits and withdrawal requests, then approve or reject them as needed.</p></header>
 
     <div className="grid gap-4 sm:grid-cols-3">
       <Card className="p-5"><Users className="mb-2 text-primary" /><p className="text-sm text-muted-foreground">Users</p><p className="text-2xl font-bold">{users.data?.length ?? '—'}</p></Card>

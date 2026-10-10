@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { useSession } from '@/components/session-context';
 import { supabase } from '@/integrations/supabase/client';
 import { calculateCompletedDeposits, calculateCompletedWithdrawals, calculateNetBalance } from '@/lib/funds';
-import { submitPayHeroMpesa } from '@/lib/payhero';
+import { submitMegaPayStk } from '@/lib/megapay';
 import { getWithdrawalTaxState } from '@/lib/withdrawal-tax';
 import { useServerFn } from '@tanstack/react-start';
 
@@ -18,13 +18,13 @@ const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 
 export function AccountDashboard() {
   const { user } = useSession();
   const qc = useQueryClient();
-  const submitPayHeroRequest = useServerFn(submitPayHeroMpesa);
+  const submitMegaPayRequest = useServerFn(submitMegaPayStk);
   const [selected, setSelected] = useState<'demo' | 'real'>('demo');
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [fundsDialog, setFundsDialog] = useState<'deposit' | 'withdraw' | null>(null);
   const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState('PayHero M-Pesa');
+  const [method, setMethod] = useState('MegaPay M-Pesa');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [taxAcknowledged, setTaxAcknowledged] = useState(false);
@@ -41,6 +41,11 @@ export function AccountDashboard() {
   const withdrawn = calculateCompletedWithdrawals(withdrawals.data ?? []);
   const realBalance = calculateNetBalance(deposits.data ?? [], withdrawals.data ?? []);
   const taxCompliance = getWithdrawalTaxState({ hasCompletedDeposit: deposited > 0, taxAmount: taxSetting.data ?? 0 });
+  const kesPerUsd = Number(import.meta.env['VITE_MEGAPAY_KES_PER_USD'] ?? 0);
+  const depositAmount = Number(amount);
+  const estimatedKes = Number.isFinite(kesPerUsd) && kesPerUsd > 0 && depositAmount >= 10
+    ? Math.round(depositAmount * kesPerUsd)
+    : null;
 
   async function reset() {
     setResetting(true);
@@ -57,7 +62,7 @@ export function AccountDashboard() {
     e.preventDefault();
     const value = Number(amount);
     if (!(value >= 10)) { toast.error('Minimum deposit is 10.00 USD.'); return; }
-    if (method === 'PayHero M-Pesa') {
+    if (fundsDialog === 'deposit' || method === 'M-Pesa') {
       const cleanedPhone = phoneNumber.replace(/\s+/g, '').trim();
       if (!cleanedPhone) {
         toast.error(fundsDialog === 'deposit' ? 'Enter the M-Pesa phone number before submitting the deposit request.' : 'Enter the M-Pesa phone number before submitting the withdrawal request.');
@@ -72,40 +77,57 @@ export function AccountDashboard() {
       if (taxCompliance.visible && !taxAcknowledged) { toast.error('Please confirm the tax compliance fee before requesting a withdrawal.'); return; }
     }
     setSubmitting(true);
-    const paymentNote = method === 'PayHero M-Pesa' ? `M-Pesa number: ${phoneNumber.trim()}` : null;
+    const paymentNote = fundsDialog === 'deposit' || method === 'M-Pesa' ? `M-Pesa number: ${phoneNumber.trim()}` : null;
     const withdrawalNote = [
       taxCompliance.visible ? `Tax compliance fee of ${money(taxCompliance.amount)} USD acknowledged.` : null,
       paymentNote,
     ].filter(Boolean).join(' | ');
 
-    let payheroReference = '';
-    if (method === 'PayHero M-Pesa') {
-      const result = await submitPayHeroRequest({
-        amount: value,
-        phoneNumber,
-        reference: `${fundsDialog}-${user!.id}-${Date.now()}`,
-        channelId: undefined,
-        mode: fundsDialog ?? 'deposit',
-      });
-      if (!result.ok) {
+    let megaPayDetails = '';
+    if (fundsDialog === 'deposit') {
+      let result;
+      try {
+        result = await submitMegaPayRequest({
+          amountUsd: value,
+          phoneNumber,
+          reference: `deposit-${user!.id}-${Date.now()}`,
+        });
+      } catch {
         setSubmitting(false);
-        toast.error(result.message || 'PayHero request failed.');
+        toast.error('Unable to start the MegaPay STK request. Please try again.');
         return;
       }
-      payheroReference = result.reference ?? result.transactionId ?? 'PayHero';
+      if (!result.ok) {
+        setSubmitting(false);
+        toast.error(result.message || 'MegaPay STK request failed.');
+        return;
+      }
+      megaPayDetails = `MegaPay request: ${result.transactionRequestId} | KES ${result.amountKes} | USD/KES ${result.kesPerUsd}`;
     }
 
     const note = [
       paymentNote,
-      payheroReference ? `PayHero ref: ${payheroReference}` : null,
+      megaPayDetails || null,
     ].filter(Boolean).join(' | ');
 
-    const { error } = fundsDialog === 'deposit'
-      ? await supabase.from('deposits').insert({ user_id: user!.id, amount: value, method, note: note || null, status: 'pending' })
-      : await supabase.from('withdrawal_requests').insert({ user_id: user!.id, amount: value, method, note: (withdrawalNote || '') + (payheroReference ? ` | PayHero ref: ${payheroReference}` : '') || null });
+    let error: { message: string } | null = null;
+    try {
+      if (fundsDialog === 'deposit') {
+        ({ error } = await supabase.from('deposits').insert({ user_id: user!.id, amount: value, method, note: note || null, status: 'pending' }));
+      } else {
+        ({ error } = await supabase.from('withdrawal_requests').insert({ user_id: user!.id, amount: value, method, note: withdrawalNote || null }));
+      }
+    } catch {
+      setSubmitting(false);
+      toast.error(fundsDialog === 'deposit' ? `STK was accepted but the deposit record failed to save. Reference: ${megaPayDetails}` : 'Unable to send the withdrawal request. Please try again.');
+      return;
+    }
     setSubmitting(false);
-    if (error) { toast.error(error.message); return; }
-    toast.success(fundsDialog === 'deposit' ? 'Deposit request sent. It will appear once confirmed.' : 'Withdrawal request sent. You will see it once processed.');
+    if (error) {
+      toast.error(fundsDialog === 'deposit' ? `MegaPay sent the STK prompt, but the pending deposit record could not be saved. Reference: ${megaPayDetails}` : error.message);
+      return;
+    }
+    toast.success(fundsDialog === 'deposit' ? 'MegaPay STK prompt sent. Approve it on your phone; the deposit remains pending until confirmed.' : 'Withdrawal request sent. You will see it once processed.');
     setFundsDialog(null); setAmount(''); setPhoneNumber(''); setTaxAcknowledged(false);
     qc.invalidateQueries({ queryKey: ['my-deposits', user?.id] });
     qc.invalidateQueries({ queryKey: ['my-withdrawals', user?.id] });
@@ -120,6 +142,7 @@ export function AccountDashboard() {
     setFundsDialog(type);
     setAmount('');
     setPhoneNumber('');
+    setMethod(type === 'deposit' ? 'MegaPay M-Pesa' : 'M-Pesa');
     setTaxAcknowledged(false);
   }
 
@@ -155,10 +178,12 @@ export function AccountDashboard() {
         <form onSubmit={submitFunds} className="grid gap-3">
           {fundsDialog === 'withdraw' && taxCompliance.visible && <div className="account-notice rounded-md" role="note"><div><strong>{taxCompliance.label}</strong><p>Compliance fee: {money(taxCompliance.amount)} USD. This reminder appears only after a completed deposit and before a withdrawal is requested.</p></div></div>}
           <Input aria-label="Amount" type="number" min="10" step="0.01" placeholder="Amount (USD)" value={amount} onChange={e => setAmount(e.target.value)} required />
-          <select aria-label="Method" className="h-10 rounded-md border bg-background px-3" value={method} onChange={e => setMethod(e.target.value)}>
-            <option value="PayHero M-Pesa">PayHero M-Pesa</option><option value="PayHero Bank transfer">PayHero Bank transfer</option><option value="PayHero Card">PayHero Card</option>
-          </select>
-          {method === 'PayHero M-Pesa' && fundsDialog !== null && (
+          {fundsDialog === 'deposit'
+            ? <p className="rounded-md border bg-secondary/50 px-3 py-2 text-sm">Payment method: MegaPay M-Pesa STK</p>
+            : <select aria-label="Method" className="h-10 rounded-md border bg-background px-3" value={method} onChange={e => setMethod(e.target.value)}>
+              <option value="M-Pesa">M-Pesa</option><option value="Bank transfer">Bank transfer</option><option value="Card">Card</option>
+            </select>}
+          {(fundsDialog === 'deposit' || method === 'M-Pesa') && fundsDialog !== null && (
             <Input
               aria-label="M-Pesa phone number"
               type="tel"
@@ -169,6 +194,8 @@ export function AccountDashboard() {
               required
             />
           )}
+          {fundsDialog === 'deposit' && amount && (!Number.isFinite(kesPerUsd) || kesPerUsd <= 0) && <p className="text-sm text-destructive">MegaPay exchange rate is not configured.</p>}
+          {fundsDialog === 'deposit' && estimatedKes != null && <p className="text-sm text-muted-foreground">MegaPay will request KES {estimatedKes.toLocaleString('en-KE')} at the fixed rate of {kesPerUsd} KES per USD.</p>}
           {fundsDialog === 'withdraw' && taxCompliance.visible && <label className="flex items-start gap-2 rounded-md border border-border bg-secondary/50 p-3 text-sm">
             <input type="checkbox" checked={taxAcknowledged} onChange={e => setTaxAcknowledged(e.target.checked)} className="mt-1 h-4 w-4" />
             <span>I understand the tax compliance fee of {money(taxCompliance.amount)} USD and want to continue with this withdrawal.</span>
