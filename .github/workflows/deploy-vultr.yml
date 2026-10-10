@@ -37,11 +37,13 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_MEGAPAY_KES_PER_USD: ${{ vars.VITE_MEGAPAY_KES_PER_USD }}
           VULTR_DOMAIN: ${{ vars.VULTR_DOMAIN }}
+          VULTR_HOST: ${{ vars.VULTR_HOST }}
         run: |
           test -n "$VITE_SUPABASE_URL" || { echo "Missing Actions variable VITE_SUPABASE_URL"; exit 1; }
           test -n "$VITE_SUPABASE_PUBLISHABLE_KEY" || { echo "Missing Actions variable VITE_SUPABASE_PUBLISHABLE_KEY"; exit 1; }
           node -e 'if (!Number.isFinite(Number(process.env.VITE_MEGAPAY_KES_PER_USD)) || Number(process.env.VITE_MEGAPAY_KES_PER_USD) <= 0) process.exit(1)' || { echo "Set Actions variable VITE_MEGAPAY_KES_PER_USD to a positive fixed rate"; exit 1; }
           [[ "$VULTR_DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "Set Actions variable VULTR_DOMAIN to the HTTPS hostname"; exit 1; }
+          test "$VULTR_HOST" = "139.84.245.49" || { echo "Set Actions variable VULTR_HOST to 139.84.245.49"; exit 1; }
 
       - name: Build Node server
         run: npm run build
@@ -70,7 +72,7 @@ jobs:
 
       - name: Copy image to Vultr
         env:
-          VULTR_HOST: ${{ secrets.VULTR_HOST }}
+          VULTR_HOST: ${{ vars.VULTR_HOST }}
           VULTR_USER: ${{ secrets.VULTR_USER }}
         run: |
           test -n "$VULTR_HOST"
@@ -79,7 +81,7 @@ jobs:
 
       - name: Deploy container on Vultr
         env:
-          VULTR_HOST: ${{ secrets.VULTR_HOST }}
+          VULTR_HOST: ${{ vars.VULTR_HOST }}
           VULTR_USER: ${{ secrets.VULTR_USER }}
           VULTR_DOMAIN: ${{ vars.VULTR_DOMAIN }}
         run: |

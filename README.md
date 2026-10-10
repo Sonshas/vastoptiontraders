@@ -27,11 +27,11 @@ npm run dev
 
 ## Deploy to Vultr
 
-The `Deploy to Vultr` GitHub Actions workflow deploys each push to `main` to an Ubuntu Vultr VPS running Docker. For this project, the intended hostname is `vastoptionmarkets.com` and the VPS IP is `139.84.240.227`.
+The `Deploy to Vultr` GitHub Actions workflow deploys each push to `main` to an Ubuntu Vultr VPS running Docker. For this project, the intended hostname is `vastoptionmarkets.com` and the VPS IP is `139.84.245.49`.
 
 One-time setup:
 
-1. In Cloudflare DNS, set the apex A record to `139.84.240.227`; use DNS-only while Caddy obtains its first certificate. After HTTPS works, proxying may be re-enabled with Cloudflare SSL/TLS set to Full (strict). Allow ports 22, 80, and 443 in the Vultr firewall.
+1. In Cloudflare DNS, set the apex A record to `139.84.245.49`; use DNS-only while Caddy obtains its first certificate. After HTTPS works, proxying may be re-enabled with Cloudflare SSL/TLS set to Full (strict). Allow ports 22, 80, and 443 in the Vultr firewall.
 2. Rotate any root password exposed outside the Vultr console. In the Vultr web console, download and run the bootstrap as root:
 
    ```sh
@@ -50,7 +50,6 @@ The application is bound only to `127.0.0.1:3000` behind Caddy. Supabase remains
 
 Add these GitHub repository Actions secrets:
 
-- `VULTR_HOST`: VPS IP address or hostname
 - `VULTR_USER`: SSH deploy username
 - `VULTR_SSH_PRIVATE_KEY`: private key whose public key is authorized on the VPS
 - `VULTR_KNOWN_HOSTS`: pinned SSH host-key line for the VPS
@@ -61,5 +60,6 @@ Add these Actions variables for the client build:
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 - `VITE_MEGAPAY_KES_PER_USD`
 - `VULTR_DOMAIN`: public HTTPS hostname (for example, `vastoptionmarkets.com`)
+- `VULTR_HOST`: `139.84.245.49`
 
 On the VPS, set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `MEGAPAY_API_KEY`, and `MEGAPAY_EMAIL` in `/etc/vastoptiontraders.env`, preserving mode 640. Do not commit `.env` or place server secrets in Actions variables. The workflow tests a candidate container against `/api/health` (which performs a read-only Supabase query), rolls back if the new release fails its health check, and verifies the public HTTPS endpoint. Database schema migrations remain a one-time Supabase setup and are not automatically applied by deployment. After setup, run the workflow manually from the Actions tab.
