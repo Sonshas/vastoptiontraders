@@ -43,6 +43,13 @@
       "when": 1791650000000,
       "tag": "0005_site_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791720000000,
+      "tag": "0006_sonsha_admin_role",
+      "breakpoints": true
     }
   ]
 }
