@@ -19,7 +19,7 @@ export function AccountDashboard() {
   const { user } = useSession();
   const qc = useQueryClient();
   const submitMegaPayRequest = useServerFn(submitMegaPayStk);
-  const [selected, setSelected] = useState<'demo' | 'real'>('demo');
+  const [selected, setSelected] = useState<'demo' | 'real'>('real');
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [fundsDialog, setFundsDialog] = useState<'deposit' | 'withdraw' | null>(null);
@@ -153,8 +153,9 @@ export function AccountDashboard() {
   ].sort((a, b) => +new Date(b.date) - +new Date(a.date)).slice(0, 20);
 
   function openFundsDialog(type: 'deposit' | 'withdraw') {
+    setSelected('real');
     setFundsDialog(type);
-    setAmount('');
+    setAmount(type === 'deposit' ? String(MEGAPAY_MIN_DEPOSIT_KES) : '');
     setPhoneNumber('');
     setMethod(type === 'deposit' ? 'MegaPay M-Pesa' : 'M-Pesa');
     setTaxAcknowledged(false);
@@ -167,7 +168,7 @@ export function AccountDashboard() {
       <Button variant="ghost" role="tab" aria-selected={selected === 'real'} aria-controls="account-panel" id="real-tab" className={selected === 'real' ? 'selected' : ''} onClick={() => { setSelected('real'); setConfirmReset(false); }}><img src="/usa-flag.svg" alt="USA flag" className="account-flag" /> Real account <span className="account-tag">USD</span></Button>
     </div>
     <section id="account-panel" role="tabpanel" aria-labelledby={`${selected}-tab`}>
-      <div className="account-balance-band"><div><div className="account-balance-label"><Wallet size={18} /> {selected === 'demo' ? 'Available demo balance' : 'Real account balance'}</div><div className="account-balance-number">{selected === 'real' ? (deposits.isPending || withdrawals.isPending ? '…' : money(realBalance)) : account.isError ? 'Unavailable' : account.data != null ? money(account.data) : '…'} <span>USD</span></div><p>{selected === 'demo' ? 'Virtual funds · No real money at risk' : 'Funded by confirmed deposits'}</p></div><div className="account-balance-actions">{selected === 'demo' ? <><Button asChild size="lg"><Link to="/trade">Trade with demo <ArrowUpRight /></Link></Button><Button variant="ghost" onClick={() => setConfirmReset(true)} disabled={account.isPending || account.isError || resetting}><RotateCcw /> Reset balance</Button></> : <><Button size="lg" onClick={() => openFundsDialog('deposit')}><ArrowDownToLine /> Deposit</Button><Button variant="outline" size="lg" onClick={() => openFundsDialog('withdraw')}><ArrowUpFromLine /> Withdraw</Button></>}</div></div>
+      <div className="account-balance-band"><div><div className="account-balance-label"><Wallet size={18} /> {selected === 'demo' ? 'Available demo balance' : 'Real account balance'}</div><div className="account-balance-number">{selected === 'real' ? (deposits.isPending || withdrawals.isPending ? '…' : money(realBalance)) : account.isError ? 'Unavailable' : account.data != null ? money(account.data) : '…'} <span>USD</span></div><p>{selected === 'demo' ? 'Virtual funds · No real money at risk' : 'Funded by confirmed deposits'}</p></div><div className="account-balance-actions"><Button size="lg" onClick={() => openFundsDialog('deposit')}><ArrowDownToLine /> Deposit</Button><Button size="lg" variant="secondary" onClick={() => openFundsDialog('withdraw')}><ArrowUpFromLine /> Withdraw</Button>{selected === 'demo' && <><Button asChild size="lg" variant="outline"><Link to="/trade">Trade with demo <ArrowUpRight /></Link></Button><Button variant="ghost" onClick={() => setConfirmReset(true)} disabled={account.isPending || account.isError || resetting}><RotateCcw /> Reset balance</Button></>}</div></div>
       {account.isError && selected === 'demo' && <div className="account-notice" role="alert">Your balance could not be loaded.<Button variant="outline" onClick={() => void account.refetch()}>Try again</Button></div>}
       {confirmReset && selected === 'demo' && <div className="account-notice"><div><strong>Reset demo funds?</strong><p>Your balance will return to 10,000.00 USD. Trade history is kept.</p></div><div className="account-inline-actions"><Button variant="outline" onClick={() => setConfirmReset(false)} disabled={resetting}>Cancel</Button><Button onClick={reset} disabled={resetting}>{resetting ? 'Resetting…' : 'Confirm reset'}</Button></div></div>}
       {selected === 'real' ? <>

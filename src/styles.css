@@ -383,8 +383,8 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
   .trade-topbar { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
   .trade-select { font-size: 11px; padding: 8px 4px; }
   .trade-balance { border: 0; padding: 0; gap: 4px; border-radius: 0; flex-wrap: nowrap; font-size: 11px; }
-  .trade-balance > a, .trade-balance > button:not(.trade-deposit-btn) { display: none; }
-  .trade-deposit-btn { height: 28px; padding: 0 10px; font-size: 11px; }
+  .trade-balance > a:not(.trade-deposit-btn), .trade-balance > button:not(.trade-deposit-btn) { display: none; }
+  .trade-deposit-btn { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; font-size: 11px; }
   .demo-badge { padding: 2px 4px; font-size: 9px; }
   .trade-layout { gap: 0; }
   .trade-chart-card { padding: 0; }

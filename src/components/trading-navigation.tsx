@@ -1,7 +1,7 @@
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { House, TrendingUp, Clock3, Menu, LogOut, ArrowUpRight, Wallet, ShieldCheck } from 'lucide-react';
+import { House, TrendingUp, Clock3, Menu, LogOut, ArrowUpRight, ArrowDownToLine, ArrowUpFromLine, Wallet, ShieldCheck } from 'lucide-react';
 import { useIsAdmin } from '@/routes/_authenticated/admin';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -34,6 +34,8 @@ export function TradingNavigation() {
     <Dialog open={open} onOpenChange={setOpen}><DialogContent className="trading-menu">
       <DialogTitle>Menu</DialogTitle><DialogDescription>Option Market Traders · Demo account</DialogDescription>
       <div className="trading-menu-links">
+        <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/dashboard"><ArrowDownToLine /> Deposit <ArrowUpRight /></Link></Button>
+        <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/dashboard"><ArrowUpFromLine /> Withdraw <ArrowUpRight /></Link></Button>
         <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/dashboard"><Wallet /> Accounts <ArrowUpRight /></Link></Button>
         <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/positions"><Clock3 /> Trade history <ArrowUpRight /></Link></Button>
         <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/"><House /> Welcome page <ArrowUpRight /></Link></Button>
