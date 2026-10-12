@@ -4,9 +4,9 @@ export type ThemeChoice = 'dark' | 'light';
 
 export function readTheme(): ThemeChoice {
   try {
-    return localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark';
+    return localStorage.getItem(THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light';
   } catch {
-    return 'dark';
+    return 'light';
   }
 }
 
@@ -24,4 +24,4 @@ export function syncThemeClass() {
   document.documentElement.classList.toggle('dark', readTheme() === 'dark');
 }
 
-export const themeBootScript = `(function(){try{document.documentElement.classList.toggle('dark',localStorage.getItem('${THEME_STORAGE_KEY}')!=='light');}catch(e){}})();`;
+export const themeBootScript = `(function(){try{document.documentElement.classList.toggle('dark',localStorage.getItem('${THEME_STORAGE_KEY}')==='dark');}catch(e){}})();`;

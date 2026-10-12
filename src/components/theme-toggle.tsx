@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { applyTheme, readTheme, type ThemeChoice } from '@/lib/theme';
 
 export function ThemeToggle({ labeled = false }: { labeled?: boolean }) {
-  const [theme, setTheme] = useState<ThemeChoice>('dark');
+  const [theme, setTheme] = useState<ThemeChoice>('light');
 
   useLayoutEffect(() => {
     const sync = () => setTheme(readTheme());

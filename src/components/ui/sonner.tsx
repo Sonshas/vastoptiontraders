@@ -5,7 +5,7 @@ import { readTheme, type ThemeChoice } from "@/lib/theme";
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const [theme, setTheme] = useState<ThemeChoice>("dark");
+  const [theme, setTheme] = useState<ThemeChoice>("light");
   useEffect(() => {
     const sync = () => setTheme(readTheme());
     sync();
