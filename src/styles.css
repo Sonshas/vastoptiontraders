@@ -305,11 +305,13 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
 .up { color: var(--success); } .down { color: var(--primary); }
 .trade-chart { width: 100%; height: 260px; margin: 1rem 0; background: var(--muted); border-radius: var(--radius); }
 .trade-chart polyline { stroke: var(--foreground); stroke-width: 2; }
-.digit-row { display: grid; grid-template-columns: repeat(10, 1fr); gap: .4rem; }
-.digit-cell { display: grid; justify-items: center; gap: .25rem; }
-.digit-num { width: 2.6rem; height: 2.6rem; display: grid; place-items: center; border-radius: 999px; border: 3px solid var(--border); font-weight: 700; transition: all .2s; }
-.digit-cell.hi .digit-num { border-color: var(--success); } .digit-cell.lo .digit-num { border-color: var(--primary); }
-.digit-cell.current .digit-num { background: var(--ink-surface); color: var(--on-ink); transform: scale(1.1); }
+.digit-row { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: .4rem; align-items: start; }
+.digit-cell { display: grid; justify-items: center; align-content: start; gap: 14px; min-width: 0; }
+.digit-face { position: relative; width: 2.6rem; height: 2.6rem; display: grid; place-items: center; }
+.digit-num { position: relative; z-index: 1; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; color: var(--foreground); }
+.digit-marker { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.digit-marker-circle { display: block; width: 100%; height: 100%; box-sizing: border-box; border-radius: 999px; border: 3px solid currentColor; background: color-mix(in oklch, currentColor 16%, var(--background)); }
+.digit-marker-cursor { position: absolute; top: calc(100% + 3px); left: 50%; width: 0; height: 0; transform: translateX(-50%); border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 7px solid currentColor; }
 .digit-cell small { font-size: .7rem; color: var(--muted-foreground); }
 .trade-hint { font-size: .8rem; color: var(--muted-foreground); margin-top: .75rem; }
 .trade-status { margin-top: 1rem; padding: .75rem 1rem; border-radius: var(--radius); background: var(--muted); font-weight: 600; }
@@ -402,7 +404,11 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
   .digit-stats-heading h2 { font-size: 11px; }
   .digit-stats-heading span { font-size: 8px; }
   .trade-shell .digit-row { grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 2px; overflow: visible; padding: 3px 0; }
-  .digit-num { width: 28px; height: 28px; border-width: 2px; font-size: 12px; }
+  .digit-cell { gap: 10px; }
+  .digit-face { width: 28px; height: 28px; }
+  .digit-num { font-size: 12px; }
+  .digit-marker-circle { border-width: 2px; }
+  .digit-marker-cursor { top: calc(100% + 2px); border-left-width: 4px; border-right-width: 4px; border-top-width: 5px; }
   .digit-cell small { font-size: 8px; }
   .trade-chart-card > .trade-hint { display: none; }
   .trade-status { font-size: 11px; padding: 8px; }
