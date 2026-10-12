@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMegaPayStkRequest, depositUsdFromKes, minimumDepositMessage, normalizeMegaPayPhoneNumber, resolveMegaPayKesPerUsd } from '@/lib/megapay';
+import { buildMegaPayStkRequest, depositUsdFromKes, minimumDepositMessage, normalizeMegaPayPhoneNumber, parseDepositKes, resolveMegaPayKesPerUsd } from '@/lib/megapay';
 
 describe('MegaPay STK request', () => {
   it('normalizes Kenyan phone numbers for MegaPay', () => {
@@ -20,7 +20,7 @@ describe('MegaPay STK request', () => {
     expect(request).toEqual({
       api_key: 'test-key',
       email: 'merchant@example.com',
-      amount: 2000,
+      amount: '2000',
       msisdn: '254712345678',
       reference: 'deposit-123',
     });
@@ -39,9 +39,11 @@ describe('MegaPay STK request', () => {
     };
 
     expect(minimumDepositMessage()).toBe('Minimum deposit is KES 1,600.');
+    expect(parseDepositKes('1,600')).toBe(1600);
+    expect(parseDepositKes('KES 5,000')).toBe(5000);
     expect(() => buildMegaPayStkRequest(request)).toThrow('Minimum deposit is KES 1,600.');
-    expect(buildMegaPayStkRequest({ ...request, amountKes: 1600 }).amount).toBe(1600);
-    expect(buildMegaPayStkRequest({ ...request, amountKes: 5000 }).amount).toBe(5000);
+    expect(buildMegaPayStkRequest({ ...request, amountKes: 1600 }).amount).toBe('1600');
+    expect(buildMegaPayStkRequest({ ...request, amountKes: '5,000' }).amount).toBe('5000');
     expect(() => buildMegaPayStkRequest({ ...request, amountKes: 5000, kesPerUsd: 0 })).toThrow('Set a valid VITE_MEGAPAY_KES_PER_USD exchange rate.');
   });
 

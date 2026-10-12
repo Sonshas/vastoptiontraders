@@ -27,6 +27,16 @@ export function minimumDepositMessage(): string {
   return 'Minimum deposit is KES 1,600.';
 }
 
+/** Whole shillings from a typed amount. Commas and a KES label are ignored. */
+export function parseDepositKes(value: unknown): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value) : Number.NaN;
+  if (typeof value !== 'string') return Number.NaN;
+  const cleaned = value.replace(/kes/ig, '').replace(/[,\s]/g, '');
+  if (!cleaned) return Number.NaN;
+  const amount = Number(cleaned);
+  return Number.isFinite(amount) ? Math.round(amount) : Number.NaN;
+}
+
 /** USD credited to the account for a whole-shilling deposit at the fixed rate. */
 export function depositUsdFromKes(amountKes: number, kesPerUsd: number): number {
   return Math.round((amountKes / kesPerUsd) * 100) / 100;
@@ -57,7 +67,7 @@ export function buildMegaPayStkRequest({
   apiKey,
   email,
 }: {
-  amountKes: number;
+  amountKes: unknown;
   kesPerUsd: number;
   phoneNumber: string;
   reference: string;
@@ -67,8 +77,8 @@ export function buildMegaPayStkRequest({
   if (!Number.isFinite(kesPerUsd) || kesPerUsd <= 0) {
     throw new Error('Set a valid VITE_MEGAPAY_KES_PER_USD exchange rate.');
   }
-  const wholeKes = Math.round(amountKes);
-  if (!Number.isFinite(amountKes) || wholeKes < MEGAPAY_MIN_DEPOSIT_KES) {
+  const wholeKes = parseDepositKes(amountKes);
+  if (!Number.isFinite(wholeKes) || wholeKes < MEGAPAY_MIN_DEPOSIT_KES) {
     throw new Error(minimumDepositMessage());
   }
 
@@ -80,7 +90,7 @@ export function buildMegaPayStkRequest({
   return {
     api_key: apiKey,
     email,
-    amount: wholeKes,
+    amount: String(wholeKes),
     msisdn,
     reference,
   };
@@ -88,7 +98,7 @@ export function buildMegaPayStkRequest({
 
 export const submitMegaPayStk = createServerFn({ method: 'POST' })
   .middleware([requireSupabaseAuth])
-  .validator((value: { amountKes: number; phoneNumber: string; reference: string }) => value)
+  .validator((value: { amountKes: number | string; phoneNumber: string; reference: string }) => value)
   .handler(async ({ data }) => {
     const config = getMegaPayConfig();
     if (!config.apiKey || !config.email) {
