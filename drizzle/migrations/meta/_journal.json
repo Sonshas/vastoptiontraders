@@ -50,6 +50,20 @@
       "when": 1791720000000,
       "tag": "0006_sonsha_admin_role",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791800000000,
+      "tag": "0007_practice_win_rate",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791900000000,
+      "tag": "0008_real_win_rate",
+      "breakpoints": true
     }
   ]
 }

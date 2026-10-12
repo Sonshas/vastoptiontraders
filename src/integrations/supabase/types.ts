@@ -113,6 +113,51 @@ export type Database = {
         }
         Relationships: []
       }
+      real_trades: {
+        Row: {
+          balance_after: number
+          barrier: number | null
+          contract_type: string
+          created_at: string
+          exit_digit: number
+          id: string
+          market: string
+          payout: number
+          profit: number
+          stake: number
+          user_id: string
+          won: boolean
+        }
+        Insert: {
+          balance_after: number
+          barrier?: number | null
+          contract_type: string
+          created_at?: string
+          exit_digit: number
+          id?: string
+          market: string
+          payout: number
+          profit: number
+          stake: number
+          user_id: string
+          won: boolean
+        }
+        Update: {
+          balance_after?: number
+          barrier?: number | null
+          contract_type?: string
+          created_at?: string
+          exit_digit?: number
+          id?: string
+          market?: string
+          payout?: number
+          profit?: number
+          stake?: number
+          user_id?: string
+          won?: boolean
+        }
+        Relationships: []
+      }
       site_settings: {
         Row: {
           key: string
@@ -208,6 +253,15 @@ export type Database = {
         Returns: boolean
       }
       place_practice_trade: {
+        Args: {
+          _barrier: number
+          _contract: string
+          _market: string
+          _stake: number
+        }
+        Returns: Json
+      }
+      place_real_trade: {
         Args: {
           _barrier: number
           _contract: string

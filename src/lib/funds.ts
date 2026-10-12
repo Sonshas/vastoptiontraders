@@ -18,3 +18,20 @@ export function calculateCompletedWithdrawals<T extends FundingRecord>(withdrawa
 export function calculateNetBalance<T extends FundingRecord>(deposits: T[] = [], withdrawals: T[] = []): number {
   return calculateCompletedDeposits(deposits) - calculateCompletedWithdrawals(withdrawals);
 }
+
+type ProfitRecord = {
+  profit?: number | string | null;
+};
+
+export function calculateRealizedProfit<T extends ProfitRecord>(trades: T[] = []): number {
+  return trades.reduce((sum, trade) => sum + Number(trade.profit ?? 0), 0);
+}
+
+/** Cash from completed funding, plus profit already settled on real trades. */
+export function calculateAvailableRealBalance<T extends FundingRecord, P extends ProfitRecord>(
+  deposits: T[] = [],
+  withdrawals: T[] = [],
+  trades: P[] = [],
+): number {
+  return calculateNetBalance(deposits, withdrawals) + calculateRealizedProfit(trades);
+}

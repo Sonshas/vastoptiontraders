@@ -8,7 +8,7 @@ import { SiteHeader } from '@/components/site-header';
 import { supabase } from '@/integrations/supabase/client';
 import { useSession } from '@/components/session-context';
 import { pageHead } from '@/lib/page-head';
-import { calculateNetBalance } from '@/lib/funds';
+import { loadAvailableRealBalance } from '@/lib/real-balance';
 import { useSimulatedMarket } from '@/hooks/use-simulated-market';
 import { MarketChart } from '@/components/market-chart';
 
@@ -52,31 +52,31 @@ function TradePage() {
   const [barrier, setBarrier] = useState(5);
   const [stake, setStake] = useState('10');
   const [duration, setDuration] = useState(5);
-  const [running, setRunning] = useState<null | { contract: string; left: number; digit: number; won: boolean; profit: number; balance: number }>(null);
-  const [lastResult, setLastResult] = useState<null | { won: boolean; profit: number; digit: number }>(null);
+  const [running, setRunning] = useState<null | { account: 'demo' | 'real'; contract: string; left: number; digit: number; won: boolean; profit: number; balance: number }>(null);
+  const [lastResult, setLastResult] = useState<null | { account: 'demo' | 'real'; won: boolean; profit: number; digit: number }>(null);
 
 
   const account = useQuery({ queryKey: ['practice-balance', user?.id], queryFn: async () => { const { data, error } = await supabase.rpc('get_practice_account'); if (error) throw error; return Number(data); } });
   const [accountType, setAccountType] = useState<'demo' | 'real'>('demo');
   const isReal = accountType === 'real';
-  const realFunds = useQuery({ queryKey: ['real-balance', user?.id], enabled: !!user && isReal, queryFn: async () => {
-    const [{ data: deps, error: e1 }, { data: wds, error: e2 }] = await Promise.all([
-      supabase.from('deposits').select('amount, status').eq('user_id', user!.id),
-      supabase.from('withdrawal_requests').select('amount, status').eq('user_id', user!.id),
-    ]);
-    if (e1) throw e1; if (e2) throw e2;
-    return calculateNetBalance(deps ?? [], wds ?? []);
-  } });
+  const realFunds = useQuery({ queryKey: ['real-balance', user?.id], enabled: !!user && isReal, retry: false, queryFn: () => loadAvailableRealBalance(user!.id) });
 
   // Demo outcomes are settled by the simulator, independent of the displayed ticks.
   useEffect(() => {
     if (!running) return;
     const id = setTimeout(() => {
       if (running.left > 1) { setRunning({ ...running, left: running.left - 1 }); return; }
-      setLastResult({ won: running.won, profit: running.profit, digit: running.digit });
-      qc.setQueryData(['practice-balance', user?.id], running.balance);
-      void qc.invalidateQueries({ queryKey: ['practice-trades', user?.id] });
-      toast[running.won ? 'success' : 'error'](running.won ? `Won ${money(running.profit)} USD` : `Lost ${money(-running.profit)} USD`, { description: `Demo exit digit: ${running.digit}` });
+      setLastResult({ account: running.account, won: running.won, profit: running.profit, digit: running.digit });
+      if (running.account === 'real') {
+        qc.setQueryData(['real-balance', user?.id], running.balance);
+        void qc.invalidateQueries({ queryKey: ['real-balance', user?.id] });
+        void qc.invalidateQueries({ queryKey: ['real-trades', user?.id] });
+      } else {
+        qc.setQueryData(['practice-balance', user?.id], running.balance);
+        void qc.invalidateQueries({ queryKey: ['practice-trades', user?.id] });
+      }
+      const accountLabel = running.account === 'real' ? 'Real' : 'Demo';
+      toast[running.won ? 'success' : 'error'](running.won ? `Won ${money(running.profit)} USD` : `Lost ${money(-running.profit)} USD`, { description: `${accountLabel} exit digit: ${running.digit}` });
       setRunning(null);
     }, 1000);
     return () => clearTimeout(id);
@@ -96,12 +96,19 @@ function TradePage() {
     if (!validStake) { toast.error('Stake must be between 0.35 and 5,000 USD'); return; }
     if (contract === 'OVER' && barrier > 8) { toast.error('Over needs a prediction from 0 to 8'); return; }
     if (contract === 'UNDER' && barrier < 1) { toast.error('Under needs a prediction from 1 to 9'); return; }
-    const { data, error } = await supabase.rpc('place_practice_trade', { _market: market.id, _contract: contract, _barrier: group === 'EVEN_ODD' ? 0 : barrier, _stake: stakeNum });
+    if (isReal && (realFunds.data == null || stakeNum > realFunds.data)) {
+      toast.error(realFunds.data == null ? 'Real balance is still loading.' : 'Stake is more than your available real balance.');
+      return;
+    }
+    const settlementAccount = isReal ? 'real' as const : 'demo' as const;
+    const { data, error } = await supabase.rpc(isReal ? 'place_real_trade' : 'place_practice_trade', { _market: market.id, _contract: contract, _barrier: group === 'EVEN_ODD' ? 0 : barrier, _stake: stakeNum });
     if (error) { toast.error(error.message); return; }
-    const r = data as { exit_digit: number; won: boolean; profit: number; balance: number };
-    qc.setQueryData(['practice-balance', user?.id], (b: number | undefined) => (b ?? 0) - stakeNum);
+    const r = data as { exit_digit: number; won: boolean; profit: number; balance: number } | null;
+    if (!r || typeof r.exit_digit !== 'number') { toast.error('Trade could not be settled.'); return; }
+    if (settlementAccount === 'real') qc.setQueryData(['real-balance', user?.id], (b: number | undefined) => (b ?? 0) - stakeNum);
+    else qc.setQueryData(['practice-balance', user?.id], (b: number | undefined) => (b ?? 0) - stakeNum);
     setLastResult(null);
-    setRunning({ contract, left: duration, digit: r.exit_digit, won: r.won, profit: Number(r.profit), balance: Number(r.balance) });
+    setRunning({ account: settlementAccount, contract, left: duration, digit: r.exit_digit, won: r.won, profit: Number(r.profit), balance: Number(r.balance) });
   }
   async function reset(): Promise<void> {
     const { error } = await supabase.rpc('reset_practice_account');
@@ -113,7 +120,7 @@ function TradePage() {
   return <div className="trade-shell"><SiteHeader /><main className="trade-page">
     <div className="trade-topbar">
       <select className="trade-select" value={market.id} onChange={e => { const next = MARKETS.find(m => m.id === e.target.value); if (next && !running) setMarket(next); }} disabled={!!running} aria-label="Market">{MARKETS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
-      <div className="trade-balance"><Button asChild size="sm" className="trade-deposit-btn"><Link to="/dashboard"><ArrowDownToLine /> Deposit</Link></Button><Button asChild size="sm" variant="outline" className="trade-deposit-btn"><Link to="/dashboard"><ArrowUpFromLine /> Withdraw</Link></Button><div className="account-switcher" role="tablist" aria-label="Account type"><button role="tab" aria-selected={!isReal} className={!isReal ? 'selected' : ''} onClick={() => setAccountType('demo')} disabled={!!running}>Demo</button><button role="tab" aria-selected={isReal} className={isReal ? 'selected' : ''} onClick={() => setAccountType('real')} disabled={!!running}><img src="/usa-flag.svg" alt="" /> Real</button></div><span className="demo-badge">{isReal ? 'Real' : 'Demo'}</span><strong>{isReal ? (realFunds.data != null ? money(realFunds.data) : '…') : account.data != null ? money(account.data) : '…'} USD</strong>{!isReal && <Button variant="ghost" size="icon" onClick={reset} aria-label="Reset practice balance" disabled={!!running}><RotateCcw /></Button>}</div>
+      <div className="trade-balance"><Button asChild size="sm" className="trade-deposit-btn"><Link to="/dashboard"><ArrowDownToLine /> Deposit</Link></Button><Button asChild size="sm" variant="outline" className="trade-deposit-btn"><Link to="/dashboard"><ArrowUpFromLine /> Withdraw</Link></Button><div className="account-switcher" role="tablist" aria-label="Account type"><button role="tab" aria-selected={!isReal} className={!isReal ? 'selected' : ''} onClick={() => setAccountType('demo')} disabled={!!running}>Demo</button><button role="tab" aria-selected={isReal} className={isReal ? 'selected' : ''} onClick={() => setAccountType('real')} disabled={!!running}><img src="/usa-flag.svg" alt="" /> Real</button></div><span className="demo-badge">{isReal ? 'Real' : 'Demo'}</span><strong>{isReal ? (realFunds.data != null ? money(realFunds.data) : realFunds.isError ? '—' : '…') : account.data != null ? money(account.data) : '…'} USD</strong>{!isReal && <Button variant="ghost" size="icon" onClick={reset} aria-label="Reset practice balance" disabled={!!running}><RotateCcw /></Button>}</div>
     </div>
     <div className="trade-layout">
       <section className="trade-chart-card">
@@ -124,15 +131,16 @@ function TradePage() {
         <div className="digit-stats-heading"><h2>Last digit distribution</h2><span>{Math.min(ticks.length, 100)} market ticks · Last digit {ticks.length ? digit : '—'}</span></div>
         <div className="digit-row" aria-label="Last digit statistics">{stats.map((s, d) => <div key={d} className={`digit-cell ${d === digit ? 'current' : ''} ${s === Math.max(...stats) ? 'hi' : ''} ${s === Math.min(...stats) ? 'lo' : ''}`}><span className="digit-num">{d}</span><small>{s.toFixed(1)}%</small></div>)}</div>
         <p className="trade-hint">Source: Option Market Traders · Simulated prices for practice only.</p>
-        {running && <div className="trade-status">Demo contract running: {running.contract.toLowerCase()} — {running.left} tick{running.left === 1 ? '' : 's'} left</div>}
-        {lastResult && !running && <div className={`trade-status ${lastResult.won ? 'won' : 'lost'}`}>{lastResult.won ? `You won ${money(lastResult.profit)} USD` : `You lost ${money(-lastResult.profit)} USD`} — demo exit digit {lastResult.digit}</div>}
+        {running && <div className="trade-status">{running.account === 'real' ? 'Real' : 'Demo'} contract running: {running.contract.toLowerCase()} — {running.left} tick{running.left === 1 ? '' : 's'} left</div>}
+        {lastResult && !running && <div className={`trade-status ${lastResult.won ? 'won' : 'lost'}`}>{lastResult.won ? `You won ${money(lastResult.profit)} USD` : `You lost ${money(-lastResult.profit)} USD`} — {lastResult.account === 'real' ? 'real' : 'demo'} exit digit {lastResult.digit}</div>}
       </section>
       <aside className="trade-panel">
         <div className="ticket-heading"><label className="ticket-contract"><span>Contract</span><select aria-label="Contract type" value={group} onChange={e => setGroup(e.target.value as Group)} disabled={!!running}>{GROUPS.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}</select></label><Button asChild variant="ghost" size="sm"><Link to="/positions"><History /> Positions</Link></Button></div>
         {barrierOptions.length > 0 && <div className="prediction-control"><span className="trade-label">Digit</span><div className="tick-picker" aria-label="Last digit prediction">{barrierOptions.map(n => <Button variant="ghost" key={n} aria-label={`Predict digit ${n}`} aria-pressed={n === barrier} className={n === barrier ? 'active' : ''} onClick={() => setBarrier(n)} disabled={!!running}>{n}</Button>)}</div></div>}
         <div className="ticket-fields"><label className="ticket-field" htmlFor="duration"><span>Duration (seconds)</span><select id="duration" value={duration} onChange={e => setDuration(Number(e.target.value))} disabled={!!running}>{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n} second{n === 1 ? '' : 's'}</option>)}</select></label><label className="ticket-field" htmlFor="stake"><span>Stake (USD)</span><input id="stake" type="number" min={0.35} max={5000} step={0.01} value={stake} onChange={e => setStake(e.target.value)} disabled={!!running} /></label></div>
-        <div className="ticket-buy-actions">{g.sides.map((c, i) => { const p = probability(c, barrier); const disabled = isReal || !!running || !validStake || (c === 'OVER' && barrier > 8) || (c === 'UNDER' && barrier < 1); const payout = validStake && p > 0 ? (stakeNum * 0.95) / p : 0; return <Button key={c} className={`buy-btn ${i === 0 ? 'buy-up' : 'buy-down'}`} onClick={() => buy(c)} disabled={disabled}>{i === 0 ? <TrendingUp /> : <TrendingDown />}<span><strong>{g.labels[i]}{group !== 'EVEN_ODD' ? ` ${barrier}` : ''}</strong><small>Payout {money(payout)} USD</small></span></Button>; })}</div>
-        {isReal && <p className="ticket-disclaimer" role="status">Real trading is not available yet — live trading opens when the platform goes live. Switch to Demo to practise.</p>}
+        <div className="ticket-buy-actions">{g.sides.map((c, i) => { const p = probability(c, barrier); const realBlocked = isReal && (realFunds.data == null || stakeNum > realFunds.data); const disabled = realBlocked || !!running || !validStake || (c === 'OVER' && barrier > 8) || (c === 'UNDER' && barrier < 1); const payout = validStake && p > 0 ? (stakeNum * 0.95) / p : 0; return <Button key={c} className={`buy-btn ${i === 0 ? 'buy-up' : 'buy-down'}`} onClick={() => buy(c)} disabled={disabled}>{i === 0 ? <TrendingUp /> : <TrendingDown />}<span><strong>{g.labels[i]}{group !== 'EVEN_ODD' ? ` ${barrier}` : ''}</strong><small>Payout {money(payout)} USD</small></span></Button>; })}</div>
+        {isReal && realFunds.isError && <p className="ticket-disclaimer" role="alert">Real balance could not be loaded.</p>}
+        {isReal && realFunds.data != null && validStake && stakeNum > realFunds.data && <p className="ticket-disclaimer" role="status">Stake is more than your available real balance.</p>}
         {running && <p className="ticket-disclaimer" role="status">{`${running.contract.replace('_', ' ')} · ${running.left}s remaining`}</p>}
       </aside>
     </div>

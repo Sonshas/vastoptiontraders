@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useSession } from '@/components/session-context';
 import { supabase } from '@/integrations/supabase/client';
 import { pageHead } from '@/lib/page-head';
+import { DEFAULT_PRACTICE_WIN_RATE, DEFAULT_REAL_WIN_RATE, PRACTICE_WIN_RATE_KEY, REAL_WIN_RATE_KEY, parseWinRateInput, settlementWinRate } from '@/lib/practice-win-rate';
 
 export const Route = createFileRoute('/_authenticated/admin')({
   head: () => pageHead('Admin Panel | Option Market Traders', 'Admin overview of all Option Market Traders users, demo balances and deposit records.'),
@@ -63,6 +64,24 @@ function AdminPage() {
   const [taxDraft, setTaxDraft] = useState('');
   const [taxTouched, setTaxTouched] = useState(false);
   const taxValue = taxTouched ? taxDraft : String(taxAmount.data ?? 0);
+  const winRate = useQuery({ queryKey: ['practice-win-rate'], enabled: admin.data === true, staleTime: 60_000, queryFn: async () => {
+    const { data, error } = await supabase.from('site_settings').select('value').eq('key', PRACTICE_WIN_RATE_KEY).maybeSingle();
+    if (error) throw error;
+    return settlementWinRate(data?.value);
+  } });
+  const [winDraft, setWinDraft] = useState('');
+  const [winTouched, setWinTouched] = useState(false);
+  const [winNotice, setWinNotice] = useState<{ tone: 'error' | 'info'; message: string } | null>(null);
+  const winValue = winTouched ? winDraft : String(winRate.data ?? DEFAULT_PRACTICE_WIN_RATE);
+  const realWinRate = useQuery({ queryKey: ['real-win-rate'], enabled: admin.data === true, staleTime: 60_000, queryFn: async () => {
+    const { data, error } = await supabase.from('site_settings').select('value').eq('key', REAL_WIN_RATE_KEY).maybeSingle();
+    if (error) throw error;
+    return settlementWinRate(data?.value);
+  } });
+  const [realWinDraft, setRealWinDraft] = useState('');
+  const [realWinTouched, setRealWinTouched] = useState(false);
+  const [realWinNotice, setRealWinNotice] = useState<{ tone: 'error' | 'info'; message: string } | null>(null);
+  const realWinValue = realWinTouched ? realWinDraft : String(realWinRate.data ?? DEFAULT_REAL_WIN_RATE);
 
   async function saveSiteName(e: React.FormEvent) {
     e.preventDefault();
@@ -84,6 +103,48 @@ function AdminPage() {
     toast.success('Withdrawal compliance fee updated');
     setTaxTouched(false);
     qc.invalidateQueries({ queryKey: ['withdrawal-tax-amount'] });
+  }
+
+  async function saveWinRate(e: React.FormEvent) {
+    e.preventDefault();
+    const parsed = parseWinRateInput(winValue);
+    if (!parsed.ok) {
+      setWinNotice({ tone: 'error', message: parsed.message });
+      toast.error(parsed.message);
+      return;
+    }
+    const { error } = await supabase.from('site_settings').upsert({ key: PRACTICE_WIN_RATE_KEY, value: String(parsed.value), updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    if (error) { toast.error(error.message); return; }
+    const message = parsed.clamped
+      ? `Demo win rate must be from 0 to 100. Saved as ${parsed.value}%.`
+      : 'Demo win rate updated';
+    setWinNotice(parsed.clamped ? { tone: 'info', message } : null);
+    setWinDraft(String(parsed.value));
+    setWinTouched(false);
+    qc.setQueryData(['practice-win-rate'], parsed.value);
+    toast.success(message);
+    qc.invalidateQueries({ queryKey: ['practice-win-rate'] });
+  }
+
+  async function saveRealWinRate(e: React.FormEvent) {
+    e.preventDefault();
+    const parsed = parseWinRateInput(realWinValue, 'real');
+    if (!parsed.ok) {
+      setRealWinNotice({ tone: 'error', message: parsed.message });
+      toast.error(parsed.message);
+      return;
+    }
+    const { error } = await supabase.from('site_settings').upsert({ key: REAL_WIN_RATE_KEY, value: String(parsed.value), updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    if (error) { toast.error(error.message); return; }
+    const message = parsed.clamped
+      ? `Real win rate must be from 0 to 100. Saved as ${parsed.value}%.`
+      : 'Real win rate updated';
+    setRealWinNotice(parsed.clamped ? { tone: 'info', message } : null);
+    setRealWinDraft(String(parsed.value));
+    setRealWinTouched(false);
+    qc.setQueryData(['real-win-rate'], parsed.value);
+    toast.success(message);
+    qc.invalidateQueries({ queryKey: ['real-win-rate'] });
   }
   const emailOf = (id: string) => users.data?.find(u => u.user_id === id)?.email ?? id.slice(0, 8);
 
@@ -140,6 +201,26 @@ function AdminPage() {
           <Input aria-label="Tax compliance fee" type="number" min="0" step="0.01" className="max-w-xs" placeholder="0.00" value={taxValue} onChange={e => { setTaxTouched(true); setTaxDraft(e.target.value); }} />
           <Button type="submit">Save fee</Button>
         </form>
+      </div>
+      <div className="mt-6 border-t pt-4 grid gap-6 lg:grid-cols-2">
+        <div>
+          <p className="text-sm font-medium mb-1">Demo win rate</p>
+          <p id="demo-win-rate-help" className="text-sm text-muted-foreground mb-3">Percentage of newly settled practice trades that win. Enter a number from 0 to 100. Settlement uses 90 when this is unset or invalid.</p>
+          <form onSubmit={saveWinRate} className="flex flex-wrap gap-3">
+            <Input aria-label="Demo win rate" aria-describedby={winNotice ? 'demo-win-rate-help demo-win-rate-notice' : 'demo-win-rate-help'} type="number" min={0} max={100} step="0.01" className="max-w-xs" placeholder="90" value={winValue} onChange={e => { setWinTouched(true); setWinDraft(e.target.value); setWinNotice(null); }} />
+            <Button type="submit">Save win rate</Button>
+          </form>
+          {winNotice ? <p id="demo-win-rate-notice" role="alert" className={`text-sm mt-2 ${winNotice.tone === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>{winNotice.message}</p> : null}
+        </div>
+        <div>
+          <p className="text-sm font-medium mb-1">Real win rate</p>
+          <p id="real-win-rate-help" className="text-sm text-muted-foreground mb-3">Percentage of newly settled Real account trades that win. Enter a number from 0 to 100. Settlement uses 90 when this is unset or invalid.</p>
+          <form onSubmit={saveRealWinRate} className="flex flex-wrap gap-3">
+            <Input aria-label="Real win rate" aria-describedby={realWinNotice ? 'real-win-rate-help real-win-rate-notice' : 'real-win-rate-help'} type="number" min={0} max={100} step="0.01" className="max-w-xs" placeholder="90" value={realWinValue} onChange={e => { setRealWinTouched(true); setRealWinDraft(e.target.value); setRealWinNotice(null); }} />
+            <Button type="submit">Save real win rate</Button>
+          </form>
+          {realWinNotice ? <p id="real-win-rate-notice" role="alert" className={`text-sm mt-2 ${realWinNotice.tone === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>{realWinNotice.message}</p> : null}
+        </div>
       </div>
     </Card>
 

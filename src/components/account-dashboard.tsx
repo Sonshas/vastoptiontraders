@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { useSession } from '@/components/session-context';
 import { supabase } from '@/integrations/supabase/client';
 import { calculateCompletedDeposits, calculateCompletedWithdrawals, calculateNetBalance } from '@/lib/funds';
+import { loadAvailableRealBalance } from '@/lib/real-balance';
 import { megapayIdFromNote } from '@/lib/deposit-credit';
 import { MEGAPAY_MIN_DEPOSIT_KES, depositMeetsMinimum, depositUsdFromKes, minimumDepositMessage, parseDepositKes, readMegaPayKesPerUsd, submitMegaPayStk, syncMegaPayDeposit } from '@/lib/megapay';
 import { getWithdrawalTaxState } from '@/lib/withdrawal-tax';
@@ -37,6 +38,7 @@ export function AccountDashboard() {
   const deposits = useQuery({ queryKey: ['my-deposits', user?.id], enabled: !!user, queryFn: async () => { const { data, error } = await supabase.from('deposits').select('*').eq('user_id', user!.id).order('created_at', { ascending: false }).limit(50); if (error) throw error; return data; } });
   const withdrawals = useQuery({ queryKey: ['my-withdrawals', user?.id], enabled: !!user, queryFn: async () => { const { data, error } = await supabase.from('withdrawal_requests').select('*').eq('user_id', user!.id).order('created_at', { ascending: false }).limit(50); if (error) throw error; return data; } });
   const taxSetting = useQuery({ queryKey: ['withdrawal-tax-amount'], staleTime: 60_000, queryFn: async () => { const { data, error } = await supabase.from('site_settings').select('value').eq('key', 'withdrawal_tax_amount').maybeSingle(); if (error) throw error; const amount = Number(data?.value ?? 0); return Number.isFinite(amount) ? amount : 0; } });
+  const realFunds = useQuery({ queryKey: ['real-balance', user?.id], enabled: !!user, retry: false, queryFn: () => loadAvailableRealBalance(user!.id) });
 
   useEffect(() => {
     const ids = (deposits.data ?? [])
@@ -74,7 +76,8 @@ export function AccountDashboard() {
   const profit = rows.reduce((sum, row) => sum + Number(row.profit), 0);
   const deposited = calculateCompletedDeposits(deposits.data ?? []);
   const withdrawn = calculateCompletedWithdrawals(withdrawals.data ?? []);
-  const realBalance = calculateNetBalance(deposits.data ?? [], withdrawals.data ?? []);
+  const fallbackBalance = calculateNetBalance(deposits.data ?? [], withdrawals.data ?? []);
+  const realBalance = realFunds.data != null ? realFunds.data : fallbackBalance;
   const taxCompliance = getWithdrawalTaxState({ hasCompletedDeposit: deposited > 0, taxAmount: taxSetting.data ?? 0 });
   const kesPerUsd = readMegaPayKesPerUsd();
   const depositKes = parseDepositKes(amount);
@@ -118,6 +121,7 @@ export function AccountDashboard() {
       if (!validNumber) { toast.error('Use a valid Kenyan M-Pesa phone number.'); return; }
     }
     if (fundsDialog === 'withdraw') {
+      if (realFunds.isPending) { toast.error('Real balance is still loading.'); return; }
       if (realBalance <= 0) { toast.error('You do not have any available balance to withdraw yet.'); return; }
       if (value > realBalance) { toast.error('Amount is more than your available balance.'); return; }
       if (taxCompliance.visible && !taxAcknowledged) { toast.error('Please confirm the tax compliance fee before requesting a withdrawal.'); return; }
@@ -196,7 +200,7 @@ export function AccountDashboard() {
       <Button variant="ghost" role="tab" aria-selected={selected === 'real'} aria-controls="account-panel" id="real-tab" className={selected === 'real' ? 'selected' : ''} onClick={() => { setSelected('real'); setConfirmReset(false); }}><img src="/usa-flag.svg" alt="USA flag" className="account-flag" /> Real account <span className="account-tag">USD</span></Button>
     </div>
     <section id="account-panel" role="tabpanel" aria-labelledby={`${selected}-tab`}>
-      <div className="account-balance-band"><div><div className="account-balance-label"><Wallet size={18} /> {selected === 'demo' ? 'Available demo balance' : 'Real account balance'}</div><div className="account-balance-number">{selected === 'real' ? (deposits.isPending || withdrawals.isPending ? '…' : money(realBalance)) : account.isError ? 'Unavailable' : account.data != null ? money(account.data) : '…'} <span>USD</span></div><p>{selected === 'demo' ? 'Virtual funds · No real money at risk' : 'Funded by confirmed deposits'}</p></div><div className="account-balance-actions"><Button size="lg" onClick={() => openFundsDialog('deposit')}><ArrowDownToLine /> Deposit</Button><Button size="lg" variant="secondary" onClick={() => openFundsDialog('withdraw')}><ArrowUpFromLine /> Withdraw</Button>{selected === 'demo' && <><Button asChild size="lg" variant="outline"><Link to="/trade">Trade with demo <ArrowUpRight /></Link></Button><Button variant="ghost" onClick={() => setConfirmReset(true)} disabled={account.isPending || account.isError || resetting}><RotateCcw /> Reset balance</Button></>}</div></div>
+      <div className="account-balance-band"><div><div className="account-balance-label"><Wallet size={18} /> {selected === 'demo' ? 'Available demo balance' : 'Real account balance'}</div><div className="account-balance-number">{selected === 'real' ? (realFunds.data == null && realFunds.isPending ? '…' : money(realBalance)) : account.isError ? 'Unavailable' : account.data != null ? money(account.data) : '…'} <span>USD</span></div><p>{selected === 'demo' ? 'Virtual funds · No real money at risk' : 'Funded by confirmed deposits'}</p></div><div className="account-balance-actions"><Button size="lg" onClick={() => openFundsDialog('deposit')}><ArrowDownToLine /> Deposit</Button><Button size="lg" variant="secondary" onClick={() => openFundsDialog('withdraw')}><ArrowUpFromLine /> Withdraw</Button>{selected === 'demo' && <><Button asChild size="lg" variant="outline"><Link to="/trade">Trade with demo <ArrowUpRight /></Link></Button><Button variant="ghost" onClick={() => setConfirmReset(true)} disabled={account.isPending || account.isError || resetting}><RotateCcw /> Reset balance</Button></>}</div></div>
       {account.isError && selected === 'demo' && <div className="account-notice" role="alert">Your balance could not be loaded.<Button variant="outline" onClick={() => void account.refetch()}>Try again</Button></div>}
       {confirmReset && selected === 'demo' && <div className="account-notice"><div><strong>Reset demo funds?</strong><p>Your balance will return to 10,000.00 USD. Trade history is kept.</p></div><div className="account-inline-actions"><Button variant="outline" onClick={() => setConfirmReset(false)} disabled={resetting}>Cancel</Button><Button onClick={reset} disabled={resetting}>{resetting ? 'Resetting…' : 'Confirm reset'}</Button></div></div>}
       {selected === 'real' ? <>

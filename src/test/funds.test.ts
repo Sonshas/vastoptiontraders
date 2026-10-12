@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateCompletedDeposits, calculateCompletedWithdrawals, calculateNetBalance } from '@/lib/funds';
+import { calculateAvailableRealBalance, calculateCompletedDeposits, calculateCompletedWithdrawals, calculateNetBalance } from '@/lib/funds';
 
 describe('fund balance accounting', () => {
   it('only counts completed deposits and withdrawals toward the real balance', () => {
@@ -17,5 +17,7 @@ describe('fund balance accounting', () => {
     expect(calculateCompletedDeposits(deposits)).toBe(125);
     expect(calculateCompletedWithdrawals(withdrawals)).toBe(30);
     expect(calculateNetBalance(deposits, withdrawals)).toBe(95);
+    expect(calculateAvailableRealBalance(deposits, withdrawals, [{ profit: -10 }, { profit: '2.50' }])).toBe(87.5);
+    expect(calculateAvailableRealBalance(deposits, withdrawals, [])).toBe(95);
   });
 });
