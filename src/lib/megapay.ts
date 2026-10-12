@@ -27,14 +27,30 @@ export function minimumDepositMessage(): string {
   return 'Minimum deposit is KES 1,600.';
 }
 
-/** Whole shillings from a typed amount. Commas and a KES label are ignored. */
+/** Whole shillings from a typed amount. 1600, 1,600 and 1.600 all count as 1600. */
 export function parseDepositKes(value: unknown): number {
   if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value) : Number.NaN;
   if (typeof value !== 'string') return Number.NaN;
-  const cleaned = value.replace(/kes/ig, '').replace(/[,\s]/g, '');
+  let cleaned = value.trim().replace(/kshs?|kes/ig, '').replace(/\s/g, '');
   if (!cleaned) return Number.NaN;
+  if (/^\d{1,3}(\.\d{3})+$/.test(cleaned)) cleaned = cleaned.replace(/\./g, '');
+  else if (/^\d{1,3}(,\d{3})+$/.test(cleaned)) cleaned = cleaned.replace(/,/g, '');
+  else if (/^\d+,\d{1,2}$/.test(cleaned)) cleaned = cleaned.replace(',', '.');
+  else cleaned = cleaned.replace(/,/g, '');
   const amount = Number(cleaned);
   return Number.isFinite(amount) ? Math.round(amount) : Number.NaN;
+}
+
+function providerMessage(result: unknown, fallback: string): string {
+  if (!result || typeof result !== 'object') return fallback;
+  const record = result as { message?: unknown; massage?: unknown };
+  const text = record.message ?? record.massage;
+  return typeof text === 'string' && text.trim() ? text : fallback;
+}
+
+export function depositMeetsMinimum(value: unknown): boolean {
+  const amount = parseDepositKes(value);
+  return Number.isFinite(amount) && amount >= MEGAPAY_MIN_DEPOSIT_KES;
 }
 
 /** USD credited to the account for a whole-shilling deposit at the fixed rate. */
@@ -78,7 +94,7 @@ export function buildMegaPayStkRequest({
     throw new Error('Set a valid VITE_MEGAPAY_KES_PER_USD exchange rate.');
   }
   const wholeKes = parseDepositKes(amountKes);
-  if (!Number.isFinite(wholeKes) || wholeKes < MEGAPAY_MIN_DEPOSIT_KES) {
+  if (!depositMeetsMinimum(wholeKes)) {
     throw new Error(minimumDepositMessage());
   }
 
@@ -90,7 +106,7 @@ export function buildMegaPayStkRequest({
   return {
     api_key: apiKey,
     email,
-    amount: String(wholeKes),
+    amount: wholeKes,
     msisdn,
     reference,
   };
@@ -126,10 +142,7 @@ export const submitMegaPayStk = createServerFn({ method: 'POST' })
       try { result = bodyText ? JSON.parse(bodyText) : null; } catch { result = null; }
 
       if (!response.ok) {
-        const message = typeof result === 'object' && result && 'message' in result
-          ? String((result as { message?: string }).message)
-          : bodyText || 'MegaPay STK request failed.';
-        return { ok: false, status: response.status, message };
+        return { ok: false, status: response.status, message: providerMessage(result, bodyText || 'MegaPay STK request failed.') };
       }
 
       const transactionRequestId = typeof result === 'object' && result && 'transaction_request_id' in result
@@ -139,10 +152,7 @@ export const submitMegaPayStk = createServerFn({ method: 'POST' })
         ? String((result as { success?: string | number }).success)
         : '';
       if (success !== '200' || !transactionRequestId) {
-        const message = typeof result === 'object' && result && 'message' in result
-          ? String((result as { message?: string }).message)
-          : 'MegaPay did not confirm that the STK request was accepted.';
-        return { ok: false, status: 'provider_error', message };
+        return { ok: false, status: 'provider_error', message: providerMessage(result, 'MegaPay did not confirm that the STK request was accepted.') };
       }
 
       return {
