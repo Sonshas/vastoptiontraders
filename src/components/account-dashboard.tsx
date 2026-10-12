@@ -100,9 +100,11 @@ export function AccountDashboard() {
       let result;
       try {
         result = await submitMegaPayRequest({
-          amountKes: parseDepositKes(amount),
-          phoneNumber,
-          reference: String(Date.now()),
+          data: {
+            amountKes: parseDepositKes(amount),
+            phoneNumber,
+            reference: String(Date.now()),
+          },
         });
       } catch {
         setSubmitting(false);
