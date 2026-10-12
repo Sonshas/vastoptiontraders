@@ -330,7 +330,6 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
 .trade-history { overflow-x: auto; }
 .live-market-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .live-market-heading h1 { font-size: 20px; font-weight: 600; }
-.live-market-heading .section-kicker { font-size: 10px; margin-bottom: 6px; }
 .feed-status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-foreground); font-size: 11px; }
 .feed-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .feed-status.live { color: var(--success); }
@@ -390,7 +389,6 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
   .trade-layout { gap: 0; }
   .trade-chart-card { padding: 0; }
   .live-market-heading { display: none; }
-  .live-market-heading .section-kicker { display: none; }
   .live-market-heading h1 { font-size: 13px; }
   .live-market-price { margin-block: 4px; gap: 8px; flex-wrap: nowrap; }
   .live-market-price strong { font-size: 22px; }

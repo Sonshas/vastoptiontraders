@@ -125,7 +125,7 @@ function TradePage() {
     </div>
     <div className="trade-layout">
       <section className="trade-chart-card">
-        <div className="live-market-heading"><div><p className="section-kicker">SIMULATED MARKET DATA</p><h1>{market.name}</h1></div><span className={`feed-status ${feed.status}`} role="status"><i />{feed.status === 'live' ? 'Live' : feed.status === 'connecting' ? 'Connecting' : 'Disconnected'}</span></div>
+        <div className="live-market-heading"><div><h1>{market.name}</h1></div><span className={`feed-status ${feed.status}`} role="status"><i />{feed.status === 'live' ? 'Live' : feed.status === 'connecting' ? 'Connecting' : 'Disconnected'}</span></div>
         <div className="live-market-price"><strong className={price >= prev ? 'up' : 'down'}>{ticks.length ? price.toFixed(feed.decimals) : '—'}</strong><span className={price >= prev ? 'up' : 'down'}>{ticks.length > 1 ? `${price >= prev ? '+' : ''}${(price - prev).toFixed(feed.decimals)}` : '—'}</span><small>{feed.updated ? new Date(feed.updated * 1000).toISOString().slice(11, 19) + ' UTC' : 'Awaiting prices'}</small></div>
         {feed.error && <div className="feed-error" role="alert">{feed.error}<Button variant="outline" size="sm" onClick={feed.reconnect}>Reconnect</Button></div>}
         <MarketChart ticks={feed.ticks} decimals={feed.decimals} symbol={market.id} />
