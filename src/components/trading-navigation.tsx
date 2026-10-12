@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 export function TradingNavigation() {
   const pathname = useRouterState({ select: s => s.location.pathname });
@@ -40,6 +41,7 @@ export function TradingNavigation() {
         <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/positions"><Clock3 /> Trade history <ArrowUpRight /></Link></Button>
         <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/"><House /> Welcome page <ArrowUpRight /></Link></Button>
         {isAdmin.data && <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/admin"><ShieldCheck /> Admin panel <ArrowUpRight /></Link></Button>}
+        <ThemeToggle labeled />
         <Button variant="ghost" onClick={signOut}><LogOut /> Log out</Button>
       </div>
     </DialogContent></Dialog>

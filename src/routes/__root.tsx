@@ -8,11 +8,12 @@ import {
   Scripts,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { SessionContext } from '@/components/session-context';
 import { Toaster } from '@/components/ui/sonner';
+import { syncThemeClass, themeBootScript } from '@/lib/theme';
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -108,8 +109,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
         <HeadContent />
       </head>
       <body>
@@ -126,6 +128,9 @@ function RootComponent() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [recovery, setRecovery] = useState(false);
+  useLayoutEffect(() => {
+    syncThemeClass();
+  }, []);
   useEffect(() => {
     let active = true;
     void supabase.auth.getUser().then(({ data }) => { if (active) { setUser(data.user); setLoading(false); } });

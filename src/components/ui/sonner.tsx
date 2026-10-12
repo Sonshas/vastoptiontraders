@@ -1,11 +1,20 @@
+import { useEffect, useState } from "react";
 import { Toaster as Sonner } from "sonner";
+import { readTheme, type ThemeChoice } from "@/lib/theme";
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 const Toaster = ({ ...props }: ToasterProps) => {
+  const [theme, setTheme] = useState<ThemeChoice>("dark");
+  useEffect(() => {
+    const sync = () => setTheme(readTheme());
+    sync();
+    window.addEventListener("theme-change", sync);
+    return () => window.removeEventListener("theme-change", sync);
+  }, []);
   return (
     <Sonner
-      theme="dark"
+      theme={theme}
       className="toaster group"
       toastOptions={{
         classNames: {
