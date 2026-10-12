@@ -23,16 +23,13 @@ export function readMegaPayKesPerUsd(runtimeValue?: string): number {
   return resolveMegaPayKesPerUsd(bakedKesPerUsd(), runtime);
 }
 
-/** Smallest USD amount, to the cent, whose rounded KES is at least the MegaPay minimum. */
-export function minimumDepositUsd(kesPerUsd: number): number {
-  const usd = (MEGAPAY_MIN_DEPOSIT_KES - 0.5) / kesPerUsd;
-  return Math.ceil(usd * 100 - 1e-9) / 100;
+export function minimumDepositMessage(): string {
+  return 'Minimum deposit is KES 1,600.';
 }
 
-export function minimumDepositMessage(kesPerUsd: number): string {
-  const usd = minimumDepositUsd(kesPerUsd);
-  const usdText = Number.isFinite(usd) ? ` (${usd.toFixed(2)} USD)` : '';
-  return `Minimum deposit is KES 1,600${usdText}.`;
+/** USD credited to the account for a whole-shilling deposit at the fixed rate. */
+export function depositUsdFromKes(amountKes: number, kesPerUsd: number): number {
+  return Math.round((amountKes / kesPerUsd) * 100) / 100;
 }
 
 export function getMegaPayConfig() {
@@ -53,14 +50,14 @@ export function normalizeMegaPayPhoneNumber(phoneNumber: string): string {
 }
 
 export function buildMegaPayStkRequest({
-  amountUsd,
+  amountKes,
   kesPerUsd,
   phoneNumber,
   reference,
   apiKey,
   email,
 }: {
-  amountUsd: number;
+  amountKes: number;
   kesPerUsd: number;
   phoneNumber: string;
   reference: string;
@@ -70,9 +67,9 @@ export function buildMegaPayStkRequest({
   if (!Number.isFinite(kesPerUsd) || kesPerUsd <= 0) {
     throw new Error('Set a valid VITE_MEGAPAY_KES_PER_USD exchange rate.');
   }
-  const amountKes = Math.round(amountUsd * kesPerUsd);
-  if (!Number.isFinite(amountUsd) || amountKes < MEGAPAY_MIN_DEPOSIT_KES) {
-    throw new Error(minimumDepositMessage(kesPerUsd));
+  const wholeKes = Math.round(amountKes);
+  if (!Number.isFinite(amountKes) || wholeKes < MEGAPAY_MIN_DEPOSIT_KES) {
+    throw new Error(minimumDepositMessage());
   }
 
   const msisdn = normalizeMegaPayPhoneNumber(phoneNumber);
@@ -83,7 +80,7 @@ export function buildMegaPayStkRequest({
   return {
     api_key: apiKey,
     email,
-    amount: amountKes,
+    amount: wholeKes,
     msisdn,
     reference,
   };
@@ -91,7 +88,7 @@ export function buildMegaPayStkRequest({
 
 export const submitMegaPayStk = createServerFn({ method: 'POST' })
   .middleware([requireSupabaseAuth])
-  .validator((value: { amountUsd: number; phoneNumber: string; reference: string }) => value)
+  .validator((value: { amountKes: number; phoneNumber: string; reference: string }) => value)
   .handler(async ({ data }) => {
     const config = getMegaPayConfig();
     if (!config.apiKey || !config.email) {
