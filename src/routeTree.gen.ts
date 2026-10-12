@@ -19,6 +19,7 @@ import { Route as AuthenticatedPositionsRouteImport } from './routes/_authentica
 import { Route as AuthenticatedTradeRouteImport } from './routes/_authenticated/trade'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiAuthSendEmailRouteImport } from './routes/api/auth/send-email'
+import { Route as ApiMegapayWebhookRouteImport } from './routes/api/megapay/webhook'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -69,6 +70,11 @@ const ApiAuthSendEmailRoute = ApiAuthSendEmailRouteImport.update({
   path: '/api/auth/send-email',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMegapayWebhookRoute = ApiMegapayWebhookRouteImport.update({
+  id: '/api/megapay/webhook',
+  path: '/api/megapay/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -80,6 +86,7 @@ export interface FileRoutesByFullPath {
   '/trade': typeof AuthenticatedTradeRoute
   '/api/health': typeof ApiHealthRoute
   '/api/auth/send-email': typeof ApiAuthSendEmailRoute
+  '/api/megapay/webhook': typeof ApiMegapayWebhookRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -91,6 +98,7 @@ export interface FileRoutesByTo {
   '/trade': typeof AuthenticatedTradeRoute
   '/api/health': typeof ApiHealthRoute
   '/api/auth/send-email': typeof ApiAuthSendEmailRoute
+  '/api/megapay/webhook': typeof ApiMegapayWebhookRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -104,6 +112,7 @@ export interface FileRoutesById {
   '/_authenticated/trade': typeof AuthenticatedTradeRoute
   '/api/health': typeof ApiHealthRoute
   '/api/auth/send-email': typeof ApiAuthSendEmailRoute
+  '/api/megapay/webhook': typeof ApiMegapayWebhookRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -117,6 +126,7 @@ export interface FileRouteTypes {
     | '/trade'
     | '/api/health'
     | '/api/auth/send-email'
+    | '/api/megapay/webhook'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/trade'
     | '/api/health'
     | '/api/auth/send-email'
+    | '/api/megapay/webhook'
   id:
     | '__root__'
     | '/'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/_authenticated/trade'
     | '/api/health'
     | '/api/auth/send-email'
+    | '/api/megapay/webhook'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -149,6 +161,7 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiAuthSendEmailRoute: typeof ApiAuthSendEmailRoute
+  ApiMegapayWebhookRoute: typeof ApiMegapayWebhookRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -223,6 +236,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSendEmailRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/megapay/webhook': {
+      id: '/api/megapay/webhook'
+      path: '/api/megapay/webhook'
+      fullPath: '/api/megapay/webhook'
+      preLoaderRoute: typeof ApiMegapayWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -250,6 +270,7 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiAuthSendEmailRoute: ApiAuthSendEmailRoute,
+  ApiMegapayWebhookRoute: ApiMegapayWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

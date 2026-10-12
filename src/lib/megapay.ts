@@ -115,7 +115,7 @@ export function buildMegaPayStkRequest({
 export const submitMegaPayStk = createServerFn({ method: 'POST' })
   .middleware([requireSupabaseAuth])
   .validator((value: { amountKes: number | string; phoneNumber: string; reference: string }) => value)
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const config = getMegaPayConfig();
     if (!config.apiKey || !config.email) {
       return { ok: false, status: 'not_configured', message: 'Set MEGAPAY_API_KEY and MEGAPAY_EMAIL in the server environment.' };
@@ -155,13 +155,27 @@ export const submitMegaPayStk = createServerFn({ method: 'POST' })
         return { ok: false, status: 'provider_error', message: providerMessage(result, 'MegaPay did not confirm that the STK request was accepted.') };
       }
 
+      const { recordPendingMegaPayDeposit } = await import('@/lib/deposit-credit.server');
+      const recorded = await recordPendingMegaPayDeposit({
+        userId: String(context.userId ?? ''),
+        transactionRequestId,
+        reference: data.reference,
+        amountKes: payload.amount,
+        kesPerUsd: config.kesPerUsd,
+      });
+      if (!recorded.depositId) {
+        return { ok: false, status: 'not_recorded', message: recorded.error || 'MegaPay sent the prompt, but the deposit could not be recorded.' };
+      }
+
       return {
         ok: true,
         status: response.status,
         reference: data.reference,
         transactionRequestId,
+        depositId: recorded.depositId,
         amountKes: payload.amount,
         kesPerUsd: config.kesPerUsd,
+        creditedUsd: recorded.creditedUsd,
       };
     } catch (error) {
       return {
@@ -170,4 +184,15 @@ export const submitMegaPayStk = createServerFn({ method: 'POST' })
         message: error instanceof Error ? error.message : 'Unknown MegaPay network error.',
       };
     }
+  });
+
+export const syncMegaPayDeposit = createServerFn({ method: 'POST' })
+  .middleware([requireSupabaseAuth])
+  .validator((value: { transactionRequestId: string }) => value)
+  .handler(async ({ data, context }) => {
+    const { creditMegaPayDeposit } = await import('@/lib/deposit-credit.server');
+    return creditMegaPayDeposit({
+      transactionRequestId: data.transactionRequestId,
+      userId: String(context.userId ?? ''),
+    });
   });

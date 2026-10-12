@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownToLine, ArrowUpFromLine, ArrowUpRight, FlaskConical, RotateCcw, Wallet } from 'lucide-react';
@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { useSession } from '@/components/session-context';
 import { supabase } from '@/integrations/supabase/client';
 import { calculateCompletedDeposits, calculateCompletedWithdrawals, calculateNetBalance } from '@/lib/funds';
-import { MEGAPAY_MIN_DEPOSIT_KES, depositMeetsMinimum, depositUsdFromKes, minimumDepositMessage, parseDepositKes, readMegaPayKesPerUsd, submitMegaPayStk } from '@/lib/megapay';
+import { megapayIdFromNote } from '@/lib/deposit-credit';
+import { MEGAPAY_MIN_DEPOSIT_KES, depositMeetsMinimum, depositUsdFromKes, minimumDepositMessage, parseDepositKes, readMegaPayKesPerUsd, submitMegaPayStk, syncMegaPayDeposit } from '@/lib/megapay';
 import { getWithdrawalTaxState } from '@/lib/withdrawal-tax';
 import { useServerFn } from '@tanstack/react-start';
 
@@ -19,6 +20,8 @@ export function AccountDashboard() {
   const { user } = useSession();
   const qc = useQueryClient();
   const submitMegaPayRequest = useServerFn(submitMegaPayStk);
+  const syncDeposit = useServerFn(syncMegaPayDeposit);
+  const creditedIds = useRef(new Set<string>());
   const [selected, setSelected] = useState<'demo' | 'real'>('real');
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -34,6 +37,38 @@ export function AccountDashboard() {
   const deposits = useQuery({ queryKey: ['my-deposits', user?.id], enabled: !!user, queryFn: async () => { const { data, error } = await supabase.from('deposits').select('*').eq('user_id', user!.id).order('created_at', { ascending: false }).limit(50); if (error) throw error; return data; } });
   const withdrawals = useQuery({ queryKey: ['my-withdrawals', user?.id], enabled: !!user, queryFn: async () => { const { data, error } = await supabase.from('withdrawal_requests').select('*').eq('user_id', user!.id).order('created_at', { ascending: false }).limit(50); if (error) throw error; return data; } });
   const taxSetting = useQuery({ queryKey: ['withdrawal-tax-amount'], staleTime: 60_000, queryFn: async () => { const { data, error } = await supabase.from('site_settings').select('value').eq('key', 'withdrawal_tax_amount').maybeSingle(); if (error) throw error; const amount = Number(data?.value ?? 0); return Number.isFinite(amount) ? amount : 0; } });
+
+  useEffect(() => {
+    const ids = (deposits.data ?? [])
+      .filter(deposit => deposit.status === 'pending')
+      .map(deposit => megapayIdFromNote(deposit.note))
+      .filter((id): id is string => Boolean(id));
+    if (!ids.length) return;
+    let stopped = false;
+    const check = async () => {
+      for (const transactionRequestId of ids) {
+        if (stopped || creditedIds.current.has(transactionRequestId)) continue;
+        try {
+          const result = await syncDeposit({ data: { transactionRequestId } });
+          if (stopped || creditedIds.current.has(transactionRequestId)) continue;
+          if (result.status === 'failed') {
+            creditedIds.current.add(transactionRequestId);
+            toast.error(result.message || 'The M-Pesa payment was not completed.');
+            void qc.invalidateQueries({ queryKey: ['my-deposits', user?.id] });
+            continue;
+          }
+          if (result.status !== 'completed') continue;
+          creditedIds.current.add(transactionRequestId);
+          toast.success(`${money(result.amountUsd ?? 0)} USD was added to your Real account.`);
+          void qc.invalidateQueries({ queryKey: ['my-deposits', user?.id] });
+          void qc.invalidateQueries({ queryKey: ['real-balance', user?.id] });
+        } catch { /* Keep checking until MegaPay confirms the payment. */ }
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), 5000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [deposits.data, qc, syncDeposit, user?.id]);
 
   const rows = history.data ?? [];
   const profit = rows.reduce((sum, row) => sum + Number(row.profit), 0);
@@ -94,8 +129,6 @@ export function AccountDashboard() {
       paymentNote,
     ].filter(Boolean).join(' | ');
 
-    let megaPayDetails = '';
-    let creditedUsd = 0;
     if (fundsDialog === 'deposit') {
       let result;
       try {
@@ -116,33 +149,27 @@ export function AccountDashboard() {
         toast.error(result.message || 'MegaPay STK request failed.');
         return;
       }
-      creditedUsd = depositUsdFromKes(result.amountKes, result.kesPerUsd);
-      megaPayDetails = `MegaPay request: ${result.transactionRequestId} | KES ${result.amountKes} | USD/KES ${result.kesPerUsd}`;
+      setSubmitting(false);
+      toast.success(`Approve the M-Pesa prompt. ${money(result.creditedUsd)} USD is added to your Real account after the payment is confirmed.`);
+      setFundsDialog(null); setAmount(''); setPhoneNumber(''); setTaxAcknowledged(false);
+      void qc.invalidateQueries({ queryKey: ['my-deposits', user?.id] });
+      return;
     }
-
-    const note = [
-      paymentNote,
-      megaPayDetails || null,
-    ].filter(Boolean).join(' | ');
 
     let error: { message: string } | null = null;
     try {
-      if (fundsDialog === 'deposit') {
-        ({ error } = await supabase.from('deposits').insert({ user_id: user!.id, amount: creditedUsd, method, note: note || null, status: 'pending' }));
-      } else {
-        ({ error } = await supabase.from('withdrawal_requests').insert({ user_id: user!.id, amount: value, method, note: withdrawalNote || null }));
-      }
+      ({ error } = await supabase.from('withdrawal_requests').insert({ user_id: user!.id, amount: value, method, note: withdrawalNote || null }));
     } catch {
       setSubmitting(false);
-      toast.error(fundsDialog === 'deposit' ? `STK was accepted but the deposit record failed to save. Reference: ${megaPayDetails}` : 'Unable to send the withdrawal request. Please try again.');
+      toast.error('Unable to send the withdrawal request. Please try again.');
       return;
     }
     setSubmitting(false);
     if (error) {
-      toast.error(fundsDialog === 'deposit' ? `MegaPay sent the STK prompt, but the pending deposit record could not be saved. Reference: ${megaPayDetails}` : error.message);
+      toast.error(error.message);
       return;
     }
-    toast.success(fundsDialog === 'deposit' ? 'MegaPay STK prompt sent. Approve it on your phone; the deposit remains pending until confirmed.' : 'Withdrawal request sent. You will see it once processed.');
+    toast.success('Withdrawal request sent. You will see it once processed.');
     setFundsDialog(null); setAmount(''); setPhoneNumber(''); setTaxAcknowledged(false);
     qc.invalidateQueries({ queryKey: ['my-deposits', user?.id] });
     qc.invalidateQueries({ queryKey: ['my-withdrawals', user?.id] });
