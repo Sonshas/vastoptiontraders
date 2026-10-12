@@ -48,6 +48,7 @@ function sidesFor(group: Group) {
   return GROUPS.find((item) => item.id === group)?.sides ?? ['OVER', 'UNDER'];
 }
 const lastDigit = (p: number, dec: number) => Number(p.toFixed(dec).slice(-1));
+const WIN_DIGIT_HOLD_MS = 2500;
 export const DEMO_WIN_RATE = 0.9;
 export function probability(c: string, b: number) {
   if (c === 'EVEN' || c === 'ODD' || c === 'MATCHES' || c === 'DIFFERS' || c === 'OVER' || c === 'UNDER') {
@@ -69,6 +70,7 @@ function TradePage() {
   const [duration, setDuration] = useState(5);
   const [running, setRunning] = useState<RunningTrade | null>(null);
   const [lastResult, setLastResult] = useState<null | { account: AccountKind; won: boolean; profit: number; digit: number }>(null);
+  const [winHold, setWinHold] = useState<null | { digit: number; up: boolean }>(null);
   const [targetProfit, setTargetProfit] = useState(String(DEFAULT_TARGET_PROFIT));
   const [stopLoss, setStopLoss] = useState(String(DEFAULT_STOP_LOSS));
   const [autoOn, setAutoOn] = useState(false);
@@ -97,6 +99,8 @@ function TradePage() {
   const groupRef = useRef(group);
   groupRef.current = group;
   const settleRef = useRef<(() => void) | null>(null);
+  const tickUpRef = useRef(true);
+  const winHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const account = useQuery({ queryKey: ['practice-balance', user?.id], queryFn: async () => { const { data, error } = await supabase.rpc('get_practice_account'); if (error) throw error; return Number(data); } });
   const [accountType, setAccountType] = useState<AccountKind>('demo');
@@ -131,6 +135,14 @@ function TradePage() {
       }
       const accountLabel = running.account === 'real' ? 'Real' : 'Demo';
       toast[running.won ? 'success' : 'error'](running.won ? `Won ${money(running.profit)} USD` : `Lost ${money(-running.profit)} USD`, { description: `${accountLabel} exit digit: ${running.digit}` });
+      if (running.won) {
+        if (winHoldTimerRef.current) clearTimeout(winHoldTimerRef.current);
+        setWinHold({ digit: running.digit, up: tickUpRef.current });
+        winHoldTimerRef.current = setTimeout(() => {
+          winHoldTimerRef.current = null;
+          setWinHold(null);
+        }, WIN_DIGIT_HOLD_MS);
+      }
       runningRef.current = null;
       setRunning(null);
       signalSettled();
@@ -151,9 +163,17 @@ function TradePage() {
     return () => clearTimeout(id);
   }, [running, stopNonce, qc, user?.id]);
 
+  useEffect(() => () => {
+    if (winHoldTimerRef.current) clearTimeout(winHoldTimerRef.current);
+  }, []);
+
   const price = ticks[ticks.length - 1] ?? 0;
   const prev = ticks[ticks.length - 2] ?? price;
+  tickUpRef.current = price >= prev;
   const digit = ticks.length ? lastDigit(price, feed.decimals) : 0;
+  const markerDigit = winHold?.digit ?? digit;
+  const markerUp = winHold ? winHold.up : price >= prev;
+  const showMarker = winHold != null || ticks.length > 0;
   const stats = ticks.slice(-100).reduce((counts, tick) => { counts[lastDigit(tick, feed.decimals)] += 1; return counts; }, Array(10).fill(0) as number[]).map(n => (ticks.length ? (n / Math.min(ticks.length, 100)) * 100 : 0));
   const g = GROUPS.find(x => x.id === group) ?? GROUPS[0];
   const stakeNum = Number(stake);
@@ -372,7 +392,7 @@ function TradePage() {
         {feed.error && <div className="feed-error" role="alert">{feed.error}<Button variant="outline" size="sm" onClick={feed.reconnect}>Reconnect</Button></div>}
         <MarketChart ticks={feed.ticks} decimals={feed.decimals} symbol={market.id} />
         <div className="digit-stats-heading"><h2>Last digit distribution</h2><span>{Math.min(ticks.length, 100)} market ticks · Last digit {ticks.length ? digit : '—'}</span></div>
-        <div className="digit-row" aria-label="Last digit statistics">{stats.map((s, d) => <div key={d} className="digit-cell" aria-current={ticks.length > 0 && d === digit ? 'true' : undefined}><span className="digit-face"><span className="digit-num">{d}</span>{ticks.length > 0 && d === digit && <span className={`digit-marker ${price >= prev ? 'up' : 'down'}`} aria-hidden="true"><span className="digit-marker-circle" /><span className="digit-marker-cursor" /></span>}</span><small>{s.toFixed(1)}%</small></div>)}</div>
+        <div className="digit-row" aria-label="Last digit statistics">{stats.map((s, d) => <div key={d} className="digit-cell" aria-current={showMarker && d === markerDigit ? 'true' : undefined}><span className="digit-face"><span className="digit-num">{d}</span>{showMarker && d === markerDigit && <span className={`digit-marker ${markerUp ? 'up' : 'down'}${winHold ? ' is-held' : ''}`} aria-hidden="true"><span className="digit-marker-circle" /><span className="digit-marker-cursor" /></span>}{winHold && d === markerDigit && <span className="digit-won">Won</span>}</span><small>{s.toFixed(1)}%</small></div>)}</div>
         {running && <div className="trade-status">{running.account === 'real' ? 'Real' : 'Demo'} contract running: {running.contract.toLowerCase()} — {running.left} tick{running.left === 1 ? '' : 's'} left</div>}
         {lastResult && !running && <div className={`trade-status ${lastResult.won ? 'won' : 'lost'}`}>{lastResult.won ? `You won ${money(lastResult.profit)} USD` : `You lost ${money(-lastResult.profit)} USD`} — {lastResult.account === 'real' ? 'real' : 'demo'} exit digit {lastResult.digit}</div>}
       </section>
