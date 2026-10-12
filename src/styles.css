@@ -313,7 +313,6 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
 .digit-marker-circle { display: block; width: 100%; height: 100%; box-sizing: border-box; border-radius: 999px; border: 3px solid currentColor; background: color-mix(in oklch, currentColor 16%, var(--background)); }
 .digit-marker-cursor { position: absolute; top: calc(100% + 3px); left: 50%; width: 0; height: 0; transform: translateX(-50%); border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 7px solid currentColor; }
 .digit-cell small { font-size: .7rem; color: var(--muted-foreground); }
-.trade-hint { font-size: .8rem; color: var(--muted-foreground); margin-top: .75rem; }
 .trade-status { margin-top: 1rem; padding: .75rem 1rem; border-radius: var(--radius); background: var(--muted); font-weight: 600; }
 .trade-status.won { background: var(--success-soft); color: var(--success); } .trade-status.lost { background: var(--accent); color: var(--primary); }
 .trade-panel { display: grid; gap: .6rem; align-content: start; }
@@ -412,7 +411,6 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
   .digit-marker-circle { border-width: 2px; }
   .digit-marker-cursor { top: calc(100% + 2px); border-left-width: 4px; border-right-width: 4px; border-top-width: 5px; }
   .digit-cell small { font-size: 8px; }
-  .trade-chart-card > .trade-hint { display: none; }
   .trade-status { font-size: 11px; padding: 8px; }
   .trade-panel { position: fixed; inset: auto 0 calc(62px + env(safe-area-inset-bottom)); z-index: 30; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: var(--background); padding: 6px 12px; gap: 5px; }
   .ticket-contract { gap: 0; }
