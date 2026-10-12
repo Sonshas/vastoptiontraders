@@ -256,6 +256,7 @@ export type Database = {
         Args: {
           _barrier: number
           _contract: string
+          _force_win?: boolean
           _market: string
           _stake: number
         }
@@ -265,6 +266,7 @@ export type Database = {
         Args: {
           _barrier: number
           _contract: string
+          _force_win?: boolean
           _market: string
           _stake: number
         }

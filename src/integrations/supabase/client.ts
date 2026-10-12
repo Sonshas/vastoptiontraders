@@ -1,5 +1,7 @@
 // This file is intentionally local-first so the app can run without Lovable or Supabase credentials.
 import { createClient } from '@supabase/supabase-js';
+import { winningProfit } from '@/lib/payout';
+import { digitsMatchingOutcome } from '@/lib/practice-win-rate';
 import type { Database } from './types';
 
 const DEMO_SESSION_KEY = 'demo-supabase-session';
@@ -182,15 +184,61 @@ function createSupabaseFetch(supabaseUrl: string, supabaseKey: string): typeof f
   };
 }
 
+let demoPracticeBalance = 10000;
+
+function emptyDemoQuery() {
+  const result = Promise.resolve({ data: [] as unknown[], error: null });
+  const chain = {
+    select: () => chain,
+    eq: () => chain,
+    order: () => chain,
+    limit: () => chain,
+    maybeSingle: () => Promise.resolve({ data: null, error: null }),
+    then: result.then.bind(result),
+  };
+  return chain;
+}
+
+function settleDemoTrade(fnName: string, args?: Record<string, unknown>) {
+  const stake = Number(args?._stake);
+  const real = fnName === 'place_real_trade';
+  if (!Number.isFinite(stake) || stake < 0.35 || stake > 5000) {
+    return { data: null, error: { message: 'Stake must be between 0.35 and 5000' } };
+  }
+  const balance = real ? 0 : demoPracticeBalance;
+  if (balance < stake) {
+    return { data: null, error: { message: real ? 'Insufficient real balance' : 'Insufficient practice balance' } };
+  }
+  const contract = String(args?._contract ?? '');
+  const barrier = Number(args?._barrier ?? 0);
+  const won = args?._force_win === true ? true : Math.random() < 0.9;
+  const matching = digitsMatchingOutcome(contract, barrier, won);
+  const exitDigit = matching.length ? matching[Math.floor(Math.random() * matching.length)]! : Math.floor(Math.random() * 10);
+  const profit = won ? winningProfit(stake) : -Number(stake.toFixed(2));
+  const nextBalance = Math.round((balance + profit) * 100) / 100;
+  if (!real) demoPracticeBalance = nextBalance;
+  return {
+    data: { exit_digit: exitDigit, won, payout: stake + winningProfit(stake), profit, balance: nextBalance },
+    error: null,
+  };
+}
+
 function createDemoSupabaseClient() {
   const demoAuth = createDemoAuth();
   return {
     auth: demoAuth,
-    rpc: async (fnName: string) => {
+    from: () => emptyDemoQuery(),
+    rpc: async (fnName: string, args?: Record<string, unknown>) => {
       if (fnName === 'has_role') {
         const session = readDemoSession();
         return { data: Boolean(session?.user), error: null };
       }
+      if (fnName === 'get_practice_account') return { data: demoPracticeBalance, error: null };
+      if (fnName === 'reset_practice_account') {
+        demoPracticeBalance = 10000;
+        return { data: demoPracticeBalance, error: null };
+      }
+      if (fnName === 'place_practice_trade' || fnName === 'place_real_trade') return settleDemoTrade(fnName, args);
       return { data: null, error: null };
     },
   } as any;
