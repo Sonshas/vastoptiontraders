@@ -6,12 +6,13 @@ import { parseWinRateInput, settlementRollWins, settlementWinRate } from '@/lib/
 
 const root = dirname(fileURLToPath(import.meta.url));
 const settlementSql = readFileSync(join(root, '../../drizzle/migrations/0008_real_win_rate.sql'), 'utf8');
+const forcedSql = readFileSync(join(root, '../../drizzle/migrations/0009_force_win_rate.sql'), 'utf8');
 const adminSource = readFileSync(join(root, '../routes/_authenticated/admin.tsx'), 'utf8');
 const tradeSource = readFileSync(join(root, '../routes/_authenticated/trade.tsx'), 'utf8');
 
-const realSettlement = settlementSql.slice(
-  settlementSql.indexOf('FUNCTION public.place_real_trade'),
-  settlementSql.indexOf('REVOKE EXECUTE ON FUNCTION public.place_real_trade'),
+const realSettlement = forcedSql.slice(
+  forcedSql.indexOf('FUNCTION public.place_real_trade'),
+  forcedSql.indexOf('REVOKE EXECUTE ON FUNCTION public.place_real_trade'),
 );
 
 describe('real win rate', () => {
@@ -36,16 +37,25 @@ describe('real win rate', () => {
   it('makes a 0% rate lose and a 100% rate win', () => {
     expect(settlementRollWins(0, 0)).toBe(false);
     expect(settlementRollWins(0.5, 0)).toBe(false);
+    expect(settlementRollWins(1, 0)).toBe(false);
     expect(settlementRollWins(0, 100)).toBe(true);
     expect(settlementRollWins(0.999, 100)).toBe(true);
+    expect(settlementRollWins(1, 100)).toBe(true);
   });
 
   it('settles real trades from real_win_rate against completed funding and keeps the 90% quote', () => {
     expect(realSettlement).toContain("WHERE key = 'real_win_rate'");
     expect(realSettlement).not.toContain('practice_win_rate');
     expect(realSettlement).toContain('win_pct := 90');
-    expect(realSettlement).toContain('random() < (win_pct / 100)');
+    expect(realSettlement).toContain('IF win_pct >= 100 THEN');
+    expect(realSettlement).toContain('w := true');
+    expect(realSettlement).toContain('ELSIF win_pct <= 0 THEN');
+    expect(realSettlement).toContain('w := false');
+    expect(realSettlement).toContain('ELSIF random() < (win_pct / 100.0) THEN');
+    expect(realSettlement).not.toContain('IF random() < (win_pct / 100) THEN');
     expect(realSettlement).not.toContain('random() < 0.9');
+    expect(realSettlement).not.toContain('w := CASE');
+    expect(realSettlement).toContain('candidates := candidates || cand');
     expect(realSettlement).toContain('prob := 0.9');
     expect(realSettlement).toContain('pay := round(_stake * 0.95 / prob, 2)');
     expect(realSettlement).toContain("status = 'completed'");

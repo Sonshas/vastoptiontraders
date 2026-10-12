@@ -22,9 +22,33 @@ export function settlementWinRate(value: unknown): number {
   return rate;
 }
 
-/** True when a roll in [0, 1) wins at the given percentage. */
+/** True when a roll in [0, 1] wins at the given percentage. 100 always wins and 0 always loses. */
 export function settlementRollWins(roll: number, winRatePercent: unknown): boolean {
-  return roll < settlementWinRate(winRatePercent) / 100;
+  const rate = settlementWinRate(winRatePercent);
+  if (rate >= 100) return true;
+  if (rate <= 0) return false;
+  return roll < rate / 100;
+}
+
+export function digitSatisfiesContract(contract: string, barrier: number, digit: number): boolean {
+  switch (contract) {
+    case 'EVEN': return digit % 2 === 0;
+    case 'ODD': return digit % 2 === 1;
+    case 'MATCHES': return digit === barrier;
+    case 'DIFFERS': return digit !== barrier;
+    case 'OVER': return digit > barrier;
+    case 'UNDER': return digit < barrier;
+    default: return false;
+  }
+}
+
+/** Digits 0–9 whose contract result equals the decided outcome. */
+export function digitsMatchingOutcome(contract: string, barrier: number, won: boolean): number[] {
+  const digits: number[] = [];
+  for (let digit = 0; digit < 10; digit++) {
+    if (digitSatisfiesContract(contract, barrier, digit) === won) digits.push(digit);
+  }
+  return digits;
 }
 
 /** True when a roll in [0, 1) is a demo win at the given percentage. */
