@@ -374,6 +374,41 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
 .ticket-disclaimer { font-size: 9px; color: var(--muted-foreground); text-align: center; margin: 0; min-height: 14px; }
 .ticket-auto-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .ticket-auto-actions button { min-width: 0; height: 36px; padding-inline: 8px; font-size: 12px; }
+.ticket-auto-actions .ticket-scanner {
+  background: var(--success);
+  color: var(--primary-foreground);
+  border-color: var(--success);
+  font-weight: 700;
+}
+.ticket-auto-actions .ticket-scanner:hover {
+  background: var(--success);
+  color: var(--primary-foreground);
+}
+.ticket-auto-actions .ticket-scanner[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+.ticket-scan-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.ticket-scan-status svg { width: 14px; height: 14px; }
+.ticket-scan-status[data-phase="ready"] {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: var(--success);
+}
+.ticket-buy-actions .buy-btn.scanner-side { box-shadow: inset 0 0 0 2px var(--foreground); }
 @media (max-width: 900px) {
   .trade-shell .site-header { display: none; }
   .trade-shell .header-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
@@ -419,6 +454,7 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
   .ticket-buy-actions .buy-btn { height: 48px; }
   .ticket-auto-actions { gap: 6px; }
   .ticket-auto-actions button { height: 32px; font-size: 11px; }
+  .ticket-scan-status { min-height: 22px; padding: 2px 6px; font-size: 11px; }
   .trade-history { padding: 16px 0; scroll-margin-top: 12px; }
 }
 

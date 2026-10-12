@@ -73,3 +73,19 @@ export function tradableSide(sides: readonly string[], barrier: number): string 
   }
   return null;
 }
+
+/** How long each AI scanner step stays on the ticket before the next one. */
+export const SCAN_STEP_MS = 1000;
+
+export type ScannerPosition = { barrier: number; side: string };
+
+/** Pick a contract side and a digit the ticket can buy for that side. */
+export function pickScannerPosition(sides: readonly string[], random: () => number = Math.random): ScannerPosition | null {
+  if (sides.length === 0) return null;
+  const side = sides[Math.min(sides.length - 1, Math.floor(random() * sides.length))]!;
+  let barrier = Math.min(9, Math.max(0, Math.floor(random() * 10)));
+  if (side === 'OVER') barrier = Math.min(barrier, 8);
+  if (side === 'UNDER') barrier = Math.max(barrier, 1);
+  if (tradableSide([side], barrier) !== side) return null;
+  return { barrier, side };
+}

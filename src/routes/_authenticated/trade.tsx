@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownToLine, ArrowUpFromLine, History, RotateCcw, ScanSearch, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, History, LoaderCircle, RotateCcw, ScanSearch, TrendingUp, TrendingDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -13,7 +13,7 @@ import { quotedPayout } from '@/lib/payout';
 import { loadAvailableRealBalance } from '@/lib/real-balance';
 import { useSimulatedMarket } from '@/hooks/use-simulated-market';
 import { MarketChart } from '@/components/market-chart';
-import { addSessionProfit, autoTradeDecision, DEFAULT_STOP_LOSS, DEFAULT_TARGET_PROFIT, formatUsd, pickScannerMarket, sessionNoticeCopy, tradableSide } from '@/lib/auto-trade';
+import { addSessionProfit, autoTradeDecision, DEFAULT_STOP_LOSS, DEFAULT_TARGET_PROFIT, formatUsd, pickScannerMarket, pickScannerPosition, SCAN_STEP_MS, sessionNoticeCopy, tradableSide } from '@/lib/auto-trade';
 
 export const Route = createFileRoute('/_authenticated/trade')({
   head: () => pageHead('Digit Trading | Option Market Traders', 'Practise Over/Under, Matches/Differs and Even/Odd digit contracts on simulated volatility markets with easy ~90% win-rate demo settlement.'),
@@ -37,6 +37,16 @@ const GROUPS: { id: Group; label: string; sides: [string, string]; labels: [stri
   { id: 'MATCHES_DIFFERS', label: 'Matches / Differs', sides: ['MATCHES', 'DIFFERS'], labels: ['Matches', 'Differs'] },
   { id: 'EVEN_ODD', label: 'Even / Odd', sides: ['EVEN', 'ODD'], labels: ['Even', 'Odd'] },
 ];
+const SCAN_LABEL = {
+  volatility: 'Scanning volatility',
+  position: 'Scanning position',
+  ready: 'Ready to trade',
+} as const;
+type ScanPhase = keyof typeof SCAN_LABEL;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+function sidesFor(group: Group) {
+  return GROUPS.find((item) => item.id === group)?.sides ?? ['OVER', 'UNDER'];
+}
 const lastDigit = (p: number, dec: number) => Number(p.toFixed(dec).slice(-1));
 export const DEMO_WIN_RATE = 0.9;
 export function probability(c: string, b: number) {
@@ -63,6 +73,9 @@ function TradePage() {
   const [stopLoss, setStopLoss] = useState(String(DEFAULT_STOP_LOSS));
   const [autoOn, setAutoOn] = useState(false);
   const [scannerOn, setScannerOn] = useState(false);
+  const [scanPhase, setScanPhase] = useState<ScanPhase | null>(null);
+  const [scanRunning, setScanRunning] = useState(false);
+  const [scannedSide, setScannedSide] = useState<string | null>(null);
   const [sessionProfit, setSessionProfit] = useState(0);
   const [sessionNotice, setSessionNotice] = useState<null | { kind: 'target' | 'stop'; profit: number }>(null);
   const [stopNonce, setStopNonce] = useState(0);
@@ -76,6 +89,13 @@ function TradePage() {
   const autoRef = useRef(false);
   const stopRef = useRef(false);
   const scanEachRef = useRef(false);
+  const scanTaskRef = useRef<Promise<boolean> | null>(null);
+  const scanGenRef = useRef(0);
+  const scannedSideRef = useRef<string | null>(null);
+  const barrierRef = useRef(barrier);
+  barrierRef.current = barrier;
+  const groupRef = useRef(group);
+  groupRef.current = group;
   const settleRef = useRef<(() => void) | null>(null);
 
   const account = useQuery({ queryKey: ['practice-balance', user?.id], queryFn: async () => { const { data, error } = await supabase.rpc('get_practice_account'); if (error) throw error; return Number(data); } });
@@ -141,14 +161,19 @@ function TradePage() {
   const barrierOptions = group === 'EVEN_ODD' ? [] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
   async function buy(contract: string, options?: { forceWin?: boolean; marketId?: string; stake?: number; accountIsReal?: boolean }): Promise<Settlement | null> {
+    if (scanTaskRef.current) {
+      const scanned = await scanTaskRef.current;
+      if (!scanned) return null;
+    }
     if (runningRef.current || placingRef.current) return null;
     const stakeValue = options?.stake ?? stakeNum;
     const real = options?.accountIsReal ?? isReal;
     const marketId = options?.marketId ?? marketRef.current.id;
     const forceWin = options?.forceWin === true;
+    const prediction = barrierRef.current;
     if (stakeValue < 0.35 || stakeValue > 5000) { toast.error('Stake must be between 0.35 and 5,000 USD'); return null; }
-    if (contract === 'OVER' && barrier > 8) { toast.error('Over needs a prediction from 0 to 8'); return null; }
-    if (contract === 'UNDER' && barrier < 1) { toast.error('Under needs a prediction from 1 to 9'); return null; }
+    if (contract === 'OVER' && prediction > 8) { toast.error('Over needs a prediction from 0 to 8'); return null; }
+    if (contract === 'UNDER' && prediction < 1) { toast.error('Under needs a prediction from 1 to 9'); return null; }
     const available = real ? realFunds.data : account.data;
     if (real && available == null) { toast.error('Real balance is still loading.'); return null; }
     if (available != null && stakeValue > available) {
@@ -161,7 +186,7 @@ function TradePage() {
       const { data, error } = await supabase.rpc(isReal ? 'place_real_trade' : 'place_practice_trade', {
         _market: marketId,
         _contract: contract,
-        _barrier: group === 'EVEN_ODD' ? 0 : barrier,
+        _barrier: groupRef.current === 'EVEN_ODD' ? 0 : prediction,
         _stake: stakeValue,
         ...(forceWin ? { _force_win: true } : {}),
       });
@@ -187,6 +212,61 @@ function TradePage() {
     setMarket(next);
   }
 
+  function clearScan() {
+    scannedSideRef.current = null;
+    setScannedSide(null);
+    setScanPhase(null);
+  }
+
+  async function runScannerPass(): Promise<boolean> {
+    const gen = ++scanGenRef.current;
+    const active = () => scanGenRef.current === gen && !stopRef.current;
+    setScanRunning(true);
+    try {
+      setScanPhase('volatility');
+      const next = pickScannerMarket(MARKETS);
+      selectMarket(next);
+      await sleep(SCAN_STEP_MS);
+      if (!active()) {
+        if (scanGenRef.current === gen) clearScan();
+        return false;
+      }
+      setScanPhase('position');
+      const position = pickScannerPosition(sidesFor(groupRef.current));
+      if (!position || !active()) {
+        if (scanGenRef.current === gen) clearScan();
+        return false;
+      }
+      barrierRef.current = position.barrier;
+      scannedSideRef.current = position.side;
+      setBarrier(position.barrier);
+      setScannedSide(position.side);
+      await sleep(SCAN_STEP_MS);
+      if (!active()) {
+        if (scanGenRef.current === gen) clearScan();
+        return false;
+      }
+      setScanPhase('ready');
+      await sleep(SCAN_STEP_MS);
+      if (!active()) {
+        if (scanGenRef.current === gen) clearScan();
+        return false;
+      }
+      return true;
+    } finally {
+      if (scanGenRef.current === gen) setScanRunning(false);
+    }
+  }
+
+  function startScan(): Promise<boolean> {
+    if (scanTaskRef.current) return scanTaskRef.current;
+    const task = runScannerPass().finally(() => {
+      scanTaskRef.current = null;
+    });
+    scanTaskRef.current = task;
+    return task;
+  }
+
   function scanMarkets() {
     scanEachRef.current = true;
     setScannerOn(true);
@@ -194,9 +274,15 @@ function TradePage() {
       toast.message('AI scanner will pick a new market on the next trade.');
       return;
     }
-    const next = pickScannerMarket(MARKETS);
-    selectMarket(next);
-    toast.success(`AI scanner selected ${next.name}`);
+    if (scanTaskRef.current || autoRef.current) return;
+    void (async () => {
+      const ok = await startScan();
+      if (!ok || !scanEachRef.current || autoRef.current || runningRef.current) return;
+      const side = scannedSideRef.current;
+      if (!side) return;
+      toast.success(`AI scanner selected ${marketRef.current.name}`);
+      await buy(side, { forceWin: true, marketId: marketRef.current.id });
+    })();
   }
 
   function requestStop() {
@@ -205,7 +291,7 @@ function TradePage() {
   }
 
   async function startAuto(): Promise<void> {
-    if (autoRef.current || runningRef.current || placingRef.current) return;
+    if (autoRef.current || runningRef.current || placingRef.current || scanTaskRef.current) return;
     const target = Number(targetProfit);
     const stop = Number(stopLoss);
     if (!Number.isFinite(target) || target <= 0 || !Number.isFinite(stop) || stop <= 0) {
@@ -236,11 +322,13 @@ function TradePage() {
     try {
       while (autoRef.current && !stopRef.current) {
         if (autoTradeDecision({ sessionProfit: session, targetProfit: target, stopLoss: stop, balance, stake: stakeValue }) !== 'continue') break;
+        let contract = side;
         if (scanEachRef.current) {
-          const next = pickScannerMarket(MARKETS);
-          selectMarket(next);
+          const scanned = await startScan();
+          if (!scanned || stopRef.current || !autoRef.current) break;
+          contract = scannedSideRef.current ?? side;
         }
-        const result = await buy(side, { forceWin: true, marketId: marketRef.current.id, stake: stakeValue, accountIsReal });
+        const result = await buy(contract, { forceWin: true, marketId: marketRef.current.id, stake: stakeValue, accountIsReal });
         if (!result) break;
         await waitUntilSettled();
         session = addSessionProfit(session, result.profit);
@@ -274,7 +362,7 @@ function TradePage() {
   if (!g) return null;
   return <div className="trade-shell"><SiteHeader /><main className="trade-page">
     <div className="trade-topbar">
-      <select className="trade-select" value={market.id} onChange={e => { const next = MARKETS.find(m => m.id === e.target.value); if (!next || ticketLocked) return; selectMarket(next); scanEachRef.current = false; setScannerOn(false); }} disabled={ticketLocked} aria-label="Market">{MARKETS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+      <select className="trade-select" value={market.id} onChange={e => { const next = MARKETS.find(m => m.id === e.target.value); if (!next || ticketLocked || scanRunning) return; selectMarket(next); scanEachRef.current = false; setScannerOn(false); clearScan(); }} disabled={ticketLocked || scanRunning} aria-label="Market">{MARKETS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
       <div className="trade-balance"><Button asChild size="sm" className="trade-deposit-btn"><Link to="/dashboard"><ArrowDownToLine /> Deposit</Link></Button><Button asChild size="sm" variant="outline" className="trade-deposit-btn"><Link to="/dashboard"><ArrowUpFromLine /> Withdraw</Link></Button><div className="account-switcher" role="tablist" aria-label="Account type"><button role="tab" aria-selected={!isReal} className={!isReal ? 'selected' : ''} onClick={() => setAccountType('demo')} disabled={ticketLocked}>Demo</button><button role="tab" aria-selected={isReal} className={isReal ? 'selected' : ''} onClick={() => setAccountType('real')} disabled={ticketLocked}><img src="/usa-flag.svg" alt="" /> Real</button></div><span className="demo-badge">{isReal ? 'Real' : 'Demo'}</span><strong>{isReal ? (realFunds.data != null ? money(realFunds.data) : realFunds.isError ? '—' : '…') : account.data != null ? money(account.data) : '…'} USD</strong>{!isReal && <Button variant="ghost" size="icon" onClick={reset} aria-label="Reset practice balance" disabled={ticketLocked}><RotateCcw /></Button>}</div>
     </div>
     <div className="trade-layout">
@@ -293,8 +381,9 @@ function TradePage() {
         {barrierOptions.length > 0 && <div className="prediction-control"><span className="trade-label">Digit</span><div className="tick-picker" aria-label="Last digit prediction">{barrierOptions.map(n => <Button variant="ghost" key={n} aria-label={`Predict digit ${n}`} aria-pressed={n === barrier} className={n === barrier ? 'active' : ''} onClick={() => setBarrier(n)} disabled={ticketLocked}>{n}</Button>)}</div></div>}
         <div className="ticket-fields"><label className="ticket-field" htmlFor="duration"><span>Duration (seconds)</span><select id="duration" value={duration} onChange={e => setDuration(Number(e.target.value))} disabled={ticketLocked}>{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n} second{n === 1 ? '' : 's'}</option>)}</select></label><label className="ticket-field" htmlFor="stake"><span>Stake (USD)</span><input id="stake" type="number" min={0.35} max={5000} step={0.01} value={stake} onChange={e => setStake(e.target.value)} disabled={ticketLocked} /></label></div>
         <div className="ticket-fields ticket-auto"><label className="ticket-field" htmlFor="target-profit"><span>Target profit</span><input id="target-profit" aria-label="Target profit" type="number" min={0.01} step={0.01} value={targetProfit} onChange={e => setTargetProfit(e.target.value)} disabled={ticketLocked} /></label><label className="ticket-field" htmlFor="stop-loss"><span>Stop loss</span><input id="stop-loss" aria-label="Stop loss" type="number" min={0.01} step={0.01} value={stopLoss} onChange={e => setStopLoss(e.target.value)} disabled={ticketLocked} /></label></div>
-        <div className="ticket-auto-actions"><Button type="button" variant="outline" aria-pressed={scannerOn} onClick={scanMarkets} disabled={!!running && !autoOn}><ScanSearch /> AI scanner</Button>{autoOn ? <Button type="button" variant="destructive" onClick={requestStop}>Stop</Button> : <Button type="button" onClick={() => void startAuto()} disabled={!!running}>Auto trade</Button>}</div>
-        <div className="ticket-buy-actions">{g.sides.map((c, i) => { const realBlocked = isReal && (realFunds.data == null || stakeNum > realFunds.data); const disabled = realBlocked || ticketLocked || !validStake || (c === 'OVER' && barrier > 8) || (c === 'UNDER' && barrier < 1); const payout = validStake ? quotedPayout(stakeNum) : 0; return <Button key={c} className={`buy-btn ${i === 0 ? 'buy-up' : 'buy-down'}`} onClick={() => void buy(c, { forceWin: scannerOn })} disabled={disabled}>{i === 0 ? <TrendingUp /> : <TrendingDown />}<span><strong>{g.labels[i]}{group !== 'EVEN_ODD' ? ` ${barrier}` : ''}</strong><small>Payout {money(payout)} USD</small></span></Button>; })}</div>
+        <div className="ticket-auto-actions"><Button type="button" variant="outline" className="ticket-scanner" aria-pressed={scannerOn} aria-busy={scanRunning} onClick={scanMarkets} disabled={!!running && !autoOn}><ScanSearch /> AI scanner</Button>{autoOn ? <Button type="button" variant="destructive" onClick={requestStop}>Stop</Button> : <Button type="button" onClick={() => void startAuto()} disabled={!!running || scanRunning}>Auto trade</Button>}</div>
+        {scanPhase && <p className="ticket-scan-status" role="status" data-phase={scanPhase}>{scanPhase !== 'ready' && <LoaderCircle className="animate-spin" aria-hidden="true" />}{SCAN_LABEL[scanPhase]}</p>}
+        <div className="ticket-buy-actions">{g.sides.map((c, i) => { const realBlocked = isReal && (realFunds.data == null || stakeNum > realFunds.data); const disabled = realBlocked || ticketLocked || scanRunning || !validStake || (c === 'OVER' && barrier > 8) || (c === 'UNDER' && barrier < 1); const payout = validStake ? quotedPayout(stakeNum) : 0; return <Button key={c} className={`buy-btn ${i === 0 ? 'buy-up' : 'buy-down'}${scannerOn && scannedSide === c ? ' scanner-side' : ''}`} onClick={() => void buy(c, { forceWin: scannerOn })} disabled={disabled}>{i === 0 ? <TrendingUp /> : <TrendingDown />}<span><strong>{g.labels[i]}{group !== 'EVEN_ODD' ? ` ${barrier}` : ''}</strong><small>Payout {money(payout)} USD</small></span></Button>; })}</div>
         {isReal && realFunds.isError && <p className="ticket-disclaimer" role="alert">Real balance could not be loaded.</p>}
         {isReal && realFunds.data != null && validStake && stakeNum > realFunds.data && <p className="ticket-disclaimer" role="status">Stake is more than your available real balance.</p>}
         {autoOn && <p className="ticket-disclaimer" role="status">Session profit {money(sessionProfit)} USD</p>}

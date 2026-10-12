@@ -2,11 +2,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { addSessionProfit, autoOrScannerTradeWins, autoTradeDecision, pickScannerMarket, sessionNoticeCopy } from '@/lib/auto-trade';
+import { addSessionProfit, autoOrScannerTradeWins, autoTradeDecision, pickScannerMarket, pickScannerPosition, SCAN_STEP_MS, sessionNoticeCopy } from '@/lib/auto-trade';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const forceSql = readFileSync(join(root, '../../drizzle/migrations/0011_auto_trade_force_win.sql'), 'utf8');
 const tradeSource = readFileSync(join(root, '../routes/_authenticated/trade.tsx'), 'utf8');
+const tradeCss = readFileSync(join(root, '../styles.css'), 'utf8');
 
 function settlementBody(name: 'place_practice_trade' | 'place_real_trade'): string {
   const start = forceSql.indexOf(`FUNCTION public.${name}`);
@@ -59,6 +60,14 @@ describe('auto trade force win and session stops', () => {
     expect(pickScannerMarket(markets, () => 0.99).id).toBe('R_100');
   });
 
+  it('picks a tradable scanner position and keeps each scan step visible', () => {
+    expect(pickScannerPosition(['OVER', 'UNDER'], () => 0)).toEqual({ barrier: 0, side: 'OVER' });
+    expect(pickScannerPosition(['OVER', 'UNDER'], () => 0.99)).toEqual({ barrier: 9, side: 'UNDER' });
+    expect(pickScannerPosition(['EVEN', 'ODD'], () => 0.99)).toEqual({ barrier: 9, side: 'ODD' });
+    expect(pickScannerPosition([], () => 0)).toBeNull();
+    expect(SCAN_STEP_MS).toBeGreaterThanOrEqual(1000);
+  });
+
   it('wins on the server when force win is set and keeps the admin rate for manual purchases', () => {
     for (const name of ['place_practice_trade', 'place_real_trade'] as const) {
       const body = settlementBody(name);
@@ -96,5 +105,27 @@ describe('auto trade force win and session stops', () => {
     expect(tradeSource).toContain("isReal ? 'place_real_trade' : 'place_practice_trade'");
     expect(tradeSource).toContain('sessionNoticeCopy');
     expect(tradeSource).toContain('className="trade-panel"');
+    expect(tradeSource).toContain('Scanning volatility');
+    expect(tradeSource).toContain('Scanning position');
+    expect(tradeSource).toContain('Ready to trade');
+    expect(tradeSource.indexOf('Scanning volatility')).toBeLessThan(tradeSource.indexOf('Scanning position'));
+    expect(tradeSource.indexOf('Scanning position')).toBeLessThan(tradeSource.indexOf('Ready to trade'));
+    expect(tradeSource).toContain('className="ticket-scanner"');
+    expect(tradeSource).toContain('className="ticket-scan-status"');
+    const pass = tradeSource.slice(tradeSource.indexOf('async function runScannerPass'), tradeSource.indexOf('function startScan'));
+    expect(pass.indexOf("setScanPhase('volatility')")).toBeLessThan(pass.indexOf("setScanPhase('position')"));
+    expect(pass.indexOf("setScanPhase('position')")).toBeLessThan(pass.indexOf("setScanPhase('ready')"));
+    expect(pass.indexOf("setScanPhase('ready')")).toBeLessThan(pass.lastIndexOf('await sleep(SCAN_STEP_MS)'));
+    const autoStart = tradeSource.slice(tradeSource.indexOf('async function startAuto'));
+    expect(autoStart.indexOf('await startScan()')).toBeGreaterThan(-1);
+    expect(autoStart.indexOf('await startScan()')).toBeLessThan(autoStart.indexOf('await buy('));
+    const buyFn = tradeSource.slice(tradeSource.indexOf('async function buy'), tradeSource.indexOf('function selectMarket'));
+    expect(buyFn.indexOf('scanTaskRef.current')).toBeLessThan(buyFn.indexOf('supabase.rpc'));
+    expect(tradeCss).toContain('.ticket-scanner');
+    expect(tradeCss).toContain('.ticket-scan-status');
+    const scannerRule = tradeCss.slice(tradeCss.indexOf('.ticket-auto-actions .ticket-scanner'), tradeCss.indexOf('.ticket-scan-status'));
+    expect(scannerRule).toContain('var(--success)');
+    expect(scannerRule).toContain('var(--primary-foreground)');
+    expect(scannerRule).not.toMatch(/#[0-9a-fA-F]{3,8}/);
   });
 });
