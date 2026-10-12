@@ -2,12 +2,44 @@ import { createServerFn } from '@tanstack/react-start';
 import { requireSupabaseAuth } from '@/integrations/supabase/auth-middleware';
 
 const STK_ENDPOINT = 'https://megapay.co.ke/backend/v1/initiatestk';
+export const MEGAPAY_MIN_DEPOSIT_KES = 1600;
+
+/** Vite inlines this dot-access at build time. Bracket access is not replaced. */
+function bakedKesPerUsd(): string | undefined {
+  try {
+    const value = import.meta.env.VITE_MEGAPAY_KES_PER_USD;
+    return typeof value === 'string' ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolveMegaPayKesPerUsd(baked?: string, runtime?: string): number {
+  return Number(baked?.trim() || runtime?.trim() || '');
+}
+
+export function readMegaPayKesPerUsd(runtimeValue?: string): number {
+  const runtime = runtimeValue ?? (typeof process === 'undefined' ? undefined : process.env['VITE_MEGAPAY_KES_PER_USD']);
+  return resolveMegaPayKesPerUsd(bakedKesPerUsd(), runtime);
+}
+
+/** Smallest USD amount, to the cent, whose rounded KES is at least the MegaPay minimum. */
+export function minimumDepositUsd(kesPerUsd: number): number {
+  const usd = (MEGAPAY_MIN_DEPOSIT_KES - 0.5) / kesPerUsd;
+  return Math.ceil(usd * 100 - 1e-9) / 100;
+}
+
+export function minimumDepositMessage(kesPerUsd: number): string {
+  const usd = minimumDepositUsd(kesPerUsd);
+  const usdText = Number.isFinite(usd) ? ` (${usd.toFixed(2)} USD)` : '';
+  return `Minimum deposit is KES 1,600${usdText}.`;
+}
 
 export function getMegaPayConfig() {
   return {
     apiKey: process.env['MEGAPAY_API_KEY'] ?? '',
     email: process.env['MEGAPAY_EMAIL'] ?? '',
-    kesPerUsd: Number(process.env['VITE_MEGAPAY_KES_PER_USD'] ?? 0),
+    kesPerUsd: readMegaPayKesPerUsd(),
     endpoint: process.env['MEGAPAY_STK_URL'] ?? STK_ENDPOINT,
   };
 }
@@ -35,11 +67,12 @@ export function buildMegaPayStkRequest({
   apiKey: string;
   email: string;
 }) {
-  if (!Number.isFinite(amountUsd) || amountUsd < 10) {
-    throw new Error('Minimum deposit is 10.00 USD.');
-  }
   if (!Number.isFinite(kesPerUsd) || kesPerUsd <= 0) {
     throw new Error('Set a valid VITE_MEGAPAY_KES_PER_USD exchange rate.');
+  }
+  const amountKes = Math.round(amountUsd * kesPerUsd);
+  if (!Number.isFinite(amountUsd) || amountKes < MEGAPAY_MIN_DEPOSIT_KES) {
+    throw new Error(minimumDepositMessage(kesPerUsd));
   }
 
   const msisdn = normalizeMegaPayPhoneNumber(phoneNumber);
@@ -50,7 +83,7 @@ export function buildMegaPayStkRequest({
   return {
     api_key: apiKey,
     email,
-    amount: Math.round(amountUsd * kesPerUsd),
+    amount: amountKes,
     msisdn,
     reference,
   };

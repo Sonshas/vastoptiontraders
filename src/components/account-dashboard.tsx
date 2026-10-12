@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { useSession } from '@/components/session-context';
 import { supabase } from '@/integrations/supabase/client';
 import { calculateCompletedDeposits, calculateCompletedWithdrawals, calculateNetBalance } from '@/lib/funds';
-import { submitMegaPayStk } from '@/lib/megapay';
+import { MEGAPAY_MIN_DEPOSIT_KES, minimumDepositMessage, minimumDepositUsd, readMegaPayKesPerUsd, submitMegaPayStk } from '@/lib/megapay';
 import { getWithdrawalTaxState } from '@/lib/withdrawal-tax';
 import { useServerFn } from '@tanstack/react-start';
 
@@ -41,9 +41,10 @@ export function AccountDashboard() {
   const withdrawn = calculateCompletedWithdrawals(withdrawals.data ?? []);
   const realBalance = calculateNetBalance(deposits.data ?? [], withdrawals.data ?? []);
   const taxCompliance = getWithdrawalTaxState({ hasCompletedDeposit: deposited > 0, taxAmount: taxSetting.data ?? 0 });
-  const kesPerUsd = Number(import.meta.env['VITE_MEGAPAY_KES_PER_USD'] ?? 0);
+  const kesPerUsd = readMegaPayKesPerUsd();
   const depositAmount = Number(amount);
-  const estimatedKes = Number.isFinite(kesPerUsd) && kesPerUsd > 0 && depositAmount >= 10
+  const minDepositUsd = Number.isFinite(kesPerUsd) && kesPerUsd > 0 ? minimumDepositUsd(kesPerUsd) : null;
+  const estimatedKes = Number.isFinite(kesPerUsd) && kesPerUsd > 0 && Number.isFinite(depositAmount) && depositAmount > 0
     ? Math.round(depositAmount * kesPerUsd)
     : null;
 
@@ -61,7 +62,19 @@ export function AccountDashboard() {
   async function submitFunds(e: React.FormEvent) {
     e.preventDefault();
     const value = Number(amount);
-    if (!(value >= 10)) { toast.error('Minimum deposit is 10.00 USD.'); return; }
+    if (fundsDialog === 'deposit') {
+      if (!Number.isFinite(kesPerUsd) || kesPerUsd <= 0) {
+        toast.error('Set a valid VITE_MEGAPAY_KES_PER_USD fixed exchange rate.');
+        return;
+      }
+      if (!Number.isFinite(value) || Math.round(value * kesPerUsd) < MEGAPAY_MIN_DEPOSIT_KES) {
+        toast.error(minimumDepositMessage(kesPerUsd));
+        return;
+      }
+    } else if (!(value >= 10)) {
+      toast.error('Minimum withdrawal is 10.00 USD.');
+      return;
+    }
     if (fundsDialog === 'deposit' || method === 'M-Pesa') {
       const cleanedPhone = phoneNumber.replace(/\s+/g, '').trim();
       if (!cleanedPhone) {
@@ -177,7 +190,7 @@ export function AccountDashboard() {
         </DialogHeader>
         <form onSubmit={submitFunds} className="grid gap-3">
           {fundsDialog === 'withdraw' && taxCompliance.visible && <div className="account-notice rounded-md" role="note"><div><strong>{taxCompliance.label}</strong><p>Compliance fee: {money(taxCompliance.amount)} USD. This reminder appears only after a completed deposit and before a withdrawal is requested.</p></div></div>}
-          <Input aria-label="Amount" type="number" min="10" step="0.01" placeholder="Amount (USD)" value={amount} onChange={e => setAmount(e.target.value)} required />
+          <Input aria-label="Amount" type="number" min={fundsDialog === 'deposit' ? (minDepositUsd ?? undefined) : 10} step="0.01" placeholder="Amount (USD)" value={amount} onChange={e => setAmount(e.target.value)} required />
           {fundsDialog === 'deposit'
             ? <p className="rounded-md border bg-secondary/50 px-3 py-2 text-sm">Payment method: MegaPay M-Pesa STK</p>
             : <select aria-label="Method" className="h-10 rounded-md border bg-background px-3" value={method} onChange={e => setMethod(e.target.value)}>
@@ -194,8 +207,10 @@ export function AccountDashboard() {
               required
             />
           )}
-          {fundsDialog === 'deposit' && amount && (!Number.isFinite(kesPerUsd) || kesPerUsd <= 0) && <p className="text-sm text-destructive">MegaPay exchange rate is not configured.</p>}
-          {fundsDialog === 'deposit' && estimatedKes != null && <p className="text-sm text-muted-foreground">MegaPay will request KES {estimatedKes.toLocaleString('en-KE')} at the fixed rate of {kesPerUsd} KES per USD.</p>}
+          {fundsDialog === 'deposit' && minDepositUsd != null && <p className="text-sm text-muted-foreground">Minimum deposit is KES 1,600 ({minDepositUsd.toFixed(2)} USD).</p>}
+          {fundsDialog === 'deposit' && amount && (!Number.isFinite(kesPerUsd) || kesPerUsd <= 0) && <p className="text-sm text-destructive">Set a valid VITE_MEGAPAY_KES_PER_USD fixed exchange rate.</p>}
+          {fundsDialog === 'deposit' && estimatedKes != null && estimatedKes < MEGAPAY_MIN_DEPOSIT_KES && <p className="text-sm text-destructive">{minimumDepositMessage(kesPerUsd)}</p>}
+          {fundsDialog === 'deposit' && estimatedKes != null && estimatedKes >= MEGAPAY_MIN_DEPOSIT_KES && <p className="text-sm text-muted-foreground">MegaPay will request KES {estimatedKes.toLocaleString('en-KE')} at the fixed rate of {kesPerUsd} KES per USD.</p>}
           {fundsDialog === 'withdraw' && taxCompliance.visible && <label className="flex items-start gap-2 rounded-md border border-border bg-secondary/50 p-3 text-sm">
             <input type="checkbox" checked={taxAcknowledged} onChange={e => setTaxAcknowledged(e.target.checked)} className="mt-1 h-4 w-4" />
             <span>I understand the tax compliance fee of {money(taxCompliance.amount)} USD and want to continue with this withdrawal.</span>
