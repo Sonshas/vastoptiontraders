@@ -1,7 +1,18 @@
+import { setDefaultResultOrder } from "node:dns";
+import { setDefaultAutoSelectFamily, setDefaultAutoSelectFamilyAttemptTimeout } from "node:net";
+
 import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+
+try {
+  setDefaultResultOrder("ipv4first");
+  setDefaultAutoSelectFamily(true);
+  setDefaultAutoSelectFamilyAttemptTimeout(250);
+} catch (error) {
+  console.error(error);
+}
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAuthEmail, sendResendEmail, signSendEmailHook, verifySendEmailHook } from '@/lib/resend-auth-email';
+import { buildAuthEmail, EmailSendTimeoutError, sendResendEmail, signSendEmailHook, verifySendEmailHook } from '@/lib/resend-auth-email';
 
 const secret = `v1,whsec_${Buffer.from('test-hook-secret').toString('base64')}`;
 
@@ -67,5 +67,17 @@ describe('Resend auth email', () => {
     expect(captured.authorization).toBe('Bearer re_test_key');
     expect(captured.body).toContain('"reply_to":"sonshasopunga@gmail.com"');
     expect(captured.body).not.toContain('re_test_key');
+  });
+
+  it('fails within the timeout when Resend never answers', async () => {
+    const message = buildAuthEmail(
+      { user: { email: 'trader@example.com' }, email_data: { token_hash: 'hash-1', email_action_type: 'signup' } },
+      { from: 'Option Market Traders <noreply@vastoptionmarkets.com>', replyTo: 'sonshasopunga@gmail.com', supabaseUrl: 'https://kgygsfqxiwlachohktql.supabase.co' },
+    );
+    const started = Date.now();
+
+    await expect(sendResendEmail(message, 're_test_key', () => new Promise(() => {}), 50)).rejects.toBeInstanceOf(EmailSendTimeoutError);
+
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 });

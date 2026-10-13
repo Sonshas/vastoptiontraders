@@ -99,19 +99,51 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character);
 }
 
-export async function sendResendEmail(message: AuthEmailMessage, apiKey: string, fetchImpl: typeof fetch = fetch): Promise<void> {
-  const response = await fetchImpl('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from: message.from,
-      to: [message.to],
-      reply_to: message.replyTo,
-      subject: message.subject,
-      html: message.html,
-      text: message.text,
-    }),
+export const RESEND_SEND_TIMEOUT_MS = 3000;
+
+export class EmailSendTimeoutError extends Error {
+  constructor() {
+    super('The email provider did not respond in time.');
+    this.name = 'EmailSendTimeoutError';
+  }
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+}
+
+export async function sendResendEmail(
+  message: AuthEmailMessage,
+  apiKey: string,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = RESEND_SEND_TIMEOUT_MS,
+): Promise<void> {
+  const response = await new Promise<Response>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new EmailSendTimeoutError()), timeoutMs);
+    fetchImpl('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: message.from,
+        to: [message.to],
+        reply_to: message.replyTo,
+        subject: message.subject,
+        html: message.html,
+        text: message.text,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    }).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(isTimeoutError(error) ? new EmailSendTimeoutError() : error);
+      },
+    );
   });
+  void response.body?.cancel().catch(() => undefined);
   if (!response.ok) {
     throw new Error(`Resend rejected the email (${response.status}).`);
   }
