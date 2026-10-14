@@ -13,6 +13,7 @@ import {
 
 const migration = readFileSync('drizzle/migrations/0013_referral_system.sql', 'utf8');
 const adminRoles = readFileSync('drizzle/migrations/0012_additional_admin_roles.sql', 'utf8');
+const bookmzizaAdmin = readFileSync('drizzle/migrations/0014_bookmziza_admin_role.sql', 'utf8');
 
 describe('referral links', () => {
   beforeEach(() => localStorage.clear());
@@ -86,5 +87,16 @@ describe('referral migration', () => {
     expect(adminRoles).toContain('jdey6396@gmail.com');
     expect(adminRoles).toContain('modifrayk@gmail.com');
     expect(adminRoles).toContain('domondi797@gmail.com');
+    for (const email of [
+      'domondi797@gmail.com',
+      'sonshasopunga@gmail.com',
+      'jdey6396@gmail.com',
+      'modifrayk@gmail.com',
+      'bookmzizafamily254@gmail.com',
+    ]) {
+      expect(bookmzizaAdmin).toContain(email);
+    }
+    expect(bookmzizaAdmin).not.toMatch(/is_super_admin/);
+    expect(bookmzizaAdmin).toContain('ON CONFLICT (admin_id) DO NOTHING');
   });
 });
