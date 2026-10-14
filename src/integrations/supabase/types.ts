@@ -158,6 +158,81 @@ export type Database = {
         }
         Relationships: []
       }
+      referral_codes: {
+        Row: {
+          admin_id: string
+          code: string
+          created_at: string
+          id: string
+        }
+        Insert: {
+          admin_id: string
+          code: string
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          admin_id?: string
+          code?: string
+          created_at?: string
+          id?: string
+        }
+        Relationships: []
+      }
+      referral_commissions: {
+        Row: {
+          commission_amount: number
+          created_at: string
+          deposit_amount: number
+          deposit_id: string
+          id: string
+          referred_user_id: string
+          referrer_admin_id: string
+        }
+        Insert: {
+          commission_amount: number
+          created_at?: string
+          deposit_amount: number
+          deposit_id: string
+          id?: string
+          referred_user_id: string
+          referrer_admin_id: string
+        }
+        Update: {
+          commission_amount?: number
+          created_at?: string
+          deposit_amount?: number
+          deposit_id?: string
+          id?: string
+          referred_user_id?: string
+          referrer_admin_id?: string
+        }
+        Relationships: []
+      }
+      referrals: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          referred_user_id: string
+          referrer_admin_id: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          referred_user_id: string
+          referrer_admin_id: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          referred_user_id?: string
+          referrer_admin_id?: string
+        }
+        Relationships: []
+      }
       site_settings: {
         Row: {
           key: string
@@ -245,11 +320,19 @@ export type Database = {
         }[]
       }
       get_practice_account: { Args: never; Returns: number }
+      get_referral_dashboard: {
+        Args: { _code?: string }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
+        Returns: boolean
+      }
+      is_super_admin: {
+        Args: { _user_id: string }
         Returns: boolean
       }
       place_practice_trade: {
@@ -271,6 +354,10 @@ export type Database = {
           _stake: number
         }
         Returns: Json
+      }
+      referral_link_access: {
+        Args: { _code: string }
+        Returns: string
       }
       reset_practice_account: { Args: never; Returns: number }
     }

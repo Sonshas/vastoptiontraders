@@ -180,7 +180,7 @@ function AdminPage() {
   const pending = (deposits.data ?? []).filter(d => d.status === 'pending').length;
 
   return <><SiteHeader /><main className="container-wide py-8 pb-28 space-y-8">
-    <header><p className="section-kicker">ADMIN</p><h1 className="text-3xl font-bold">Admin panel</h1><p className="text-muted-foreground text-sm mt-1">Review MegaPay deposits and withdrawal requests, then approve or reject them as needed.</p></header>
+    <header className="flex flex-wrap items-end justify-between gap-4"><div><p className="section-kicker">ADMIN</p><h1 className="text-3xl font-bold">Admin panel</h1><p className="text-muted-foreground text-sm mt-1">Review MegaPay deposits and withdrawal requests, then approve or reject them as needed.</p></div><Button asChild variant="outline"><Link to="/referrals" search={{}}>Referral dashboard</Link></Button></header>
 
     <div className="grid gap-4 sm:grid-cols-3">
       <Card className="p-5"><Users className="mb-2 text-primary" /><p className="text-sm text-muted-foreground">Users</p><p className="text-2xl font-bold">{users.data?.length ?? '—'}</p></Card>

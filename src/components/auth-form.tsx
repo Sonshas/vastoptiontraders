@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useSession } from '@/components/session-context';
+import { clearReferralCode, readReferralCode, signupOptions } from '@/lib/referral';
 
 export type AuthMode = 'login' | 'signup' | 'forgot';
 export function AuthForm({ mode }: { mode: AuthMode }) {
@@ -24,8 +25,10 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
         if (result.error) throw result.error;
         setMessage('If an account exists for this email, you’ll receive a password reset link shortly.');
       } else if (mode === 'signup') {
-        const result = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } });
+        const referralCode = readReferralCode();
+        const result = await supabase.auth.signUp({ email, password, options: signupOptions(window.location.origin, referralCode) });
         if (result.error) throw result.error;
+        if (referralCode) clearReferralCode();
         if (result.data.session) await navigate({ to: '/trade' });
         else setMessage('Check your email to confirm your account. After confirmation, you can log in.');
       } else {

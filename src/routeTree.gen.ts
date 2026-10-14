@@ -16,8 +16,10 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedPositionsRouteImport } from './routes/_authenticated/positions'
+import { Route as AuthenticatedReferralsRouteImport } from './routes/_authenticated/referrals'
 import { Route as AuthenticatedTradeRouteImport } from './routes/_authenticated/trade'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as RCodeRouteImport } from './routes/r.$code'
 import { Route as ApiAuthSendEmailRouteImport } from './routes/api/auth/send-email'
 import { Route as ApiMegapayWebhookRouteImport } from './routes/api/megapay/webhook'
 
@@ -55,6 +57,11 @@ const AuthenticatedPositionsRoute = AuthenticatedPositionsRouteImport.update({
   path: '/positions',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedReferralsRoute = AuthenticatedReferralsRouteImport.update({
+  id: '/referrals',
+  path: '/referrals',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedTradeRoute = AuthenticatedTradeRouteImport.update({
   id: '/trade',
   path: '/trade',
@@ -63,6 +70,11 @@ const AuthenticatedTradeRoute = AuthenticatedTradeRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RCodeRoute = RCodeRouteImport.update({
+  id: '/r/$code',
+  path: '/r/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSendEmailRoute = ApiAuthSendEmailRouteImport.update({
@@ -83,8 +95,10 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/positions': typeof AuthenticatedPositionsRoute
+  '/referrals': typeof AuthenticatedReferralsRoute
   '/trade': typeof AuthenticatedTradeRoute
   '/api/health': typeof ApiHealthRoute
+  '/r/$code': typeof RCodeRoute
   '/api/auth/send-email': typeof ApiAuthSendEmailRoute
   '/api/megapay/webhook': typeof ApiMegapayWebhookRoute
 }
@@ -95,8 +109,10 @@ export interface FileRoutesByTo {
   '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/positions': typeof AuthenticatedPositionsRoute
+  '/referrals': typeof AuthenticatedReferralsRoute
   '/trade': typeof AuthenticatedTradeRoute
   '/api/health': typeof ApiHealthRoute
+  '/r/$code': typeof RCodeRoute
   '/api/auth/send-email': typeof ApiAuthSendEmailRoute
   '/api/megapay/webhook': typeof ApiMegapayWebhookRoute
 }
@@ -109,8 +125,10 @@ export interface FileRoutesById {
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/positions': typeof AuthenticatedPositionsRoute
+  '/_authenticated/referrals': typeof AuthenticatedReferralsRoute
   '/_authenticated/trade': typeof AuthenticatedTradeRoute
   '/api/health': typeof ApiHealthRoute
+  '/r/$code': typeof RCodeRoute
   '/api/auth/send-email': typeof ApiAuthSendEmailRoute
   '/api/megapay/webhook': typeof ApiMegapayWebhookRoute
 }
@@ -123,8 +141,10 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard'
     | '/positions'
+    | '/referrals'
     | '/trade'
     | '/api/health'
+    | '/r/$code'
     | '/api/auth/send-email'
     | '/api/megapay/webhook'
   fileRoutesByTo: FileRoutesByTo
@@ -135,8 +155,10 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard'
     | '/positions'
+    | '/referrals'
     | '/trade'
     | '/api/health'
+    | '/r/$code'
     | '/api/auth/send-email'
     | '/api/megapay/webhook'
   id:
@@ -148,8 +170,10 @@ export interface FileRouteTypes {
     | '/_authenticated/admin'
     | '/_authenticated/dashboard'
     | '/_authenticated/positions'
+    | '/_authenticated/referrals'
     | '/_authenticated/trade'
     | '/api/health'
+    | '/r/$code'
     | '/api/auth/send-email'
     | '/api/megapay/webhook'
   fileRoutesById: FileRoutesById
@@ -160,6 +184,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  RCodeRoute: typeof RCodeRoute
   ApiAuthSendEmailRoute: typeof ApiAuthSendEmailRoute
   ApiMegapayWebhookRoute: typeof ApiMegapayWebhookRoute
 }
@@ -215,6 +240,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPositionsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/referrals': {
+      id: '/_authenticated/referrals'
+      path: '/referrals'
+      fullPath: '/referrals'
+      preLoaderRoute: typeof AuthenticatedReferralsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/trade': {
       id: '/_authenticated/trade'
       path: '/trade'
@@ -227,6 +259,13 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/r/$code': {
+      id: '/r/$code'
+      path: '/r/$code'
+      fullPath: '/r/$code'
+      preLoaderRoute: typeof RCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/send-email': {
@@ -250,6 +289,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedPositionsRoute: typeof AuthenticatedPositionsRoute
+  AuthenticatedReferralsRoute: typeof AuthenticatedReferralsRoute
   AuthenticatedTradeRoute: typeof AuthenticatedTradeRoute
 }
 
@@ -257,6 +297,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedPositionsRoute: AuthenticatedPositionsRoute,
+  AuthenticatedReferralsRoute: AuthenticatedReferralsRoute,
   AuthenticatedTradeRoute: AuthenticatedTradeRoute,
 }
 
@@ -269,6 +310,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   ApiHealthRoute: ApiHealthRoute,
+  RCodeRoute: RCodeRoute,
   ApiAuthSendEmailRoute: ApiAuthSendEmailRoute,
   ApiMegapayWebhookRoute: ApiMegapayWebhookRoute,
 }

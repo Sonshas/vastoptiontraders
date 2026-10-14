@@ -16,6 +16,13 @@ describe("App routing", () => {
     expect(matches.at(-1)?.routeId).not.toBe(rootRouteId);
   });
 
+  it("matches a referral link and the referral dashboard", () => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+
+    expect(router.matchRoutes("/r/abc1234567").at(-1)?.routeId).toBe("/r/$code");
+    expect(router.matchRoutes("/referrals").at(-1)?.routeId).toBe("/_authenticated/referrals");
+  });
+
   it("keeps demo trades near a 90% win rate", () => {
     expect(probability("EVEN", 0)).toBe(0.9);
     expect(probability("ODD", 0)).toBe(0.9);
