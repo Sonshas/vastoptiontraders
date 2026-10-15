@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownToLine, ArrowUpFromLine, History, LoaderCircle, RotateCcw, ScanSearch, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, History, LoaderCircle, RotateCcw, ScanSearch, TrendingUp, TrendingDown, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -14,7 +14,7 @@ import { heldCursorDigit, lastDigitOfQuote, quoteWithLastDigit } from '@/lib/pra
 import { loadAvailableRealBalance } from '@/lib/real-balance';
 import { useSimulatedMarket } from '@/hooks/use-simulated-market';
 import { MarketChart } from '@/components/market-chart';
-import { addSessionProfit, autoTradeDecision, DEFAULT_STOP_LOSS, DEFAULT_TARGET_PROFIT, formatUsd, pickScannerMarket, pickScannerPosition, SCAN_STEP_MS, sessionNoticeCopy, tradableSide } from '@/lib/auto-trade';
+import { addSessionProfit, autoTradeDecision, buildScanSequence, DEFAULT_STOP_LOSS, DEFAULT_TARGET_PROFIT, formatUsd, loadedScanMatches, SCAN_CONTRACTS, SCAN_FRAME_MS, scanContractGroup, scanContractLabel, sessionNoticeCopy, type LoadedScan, type ScanChoice } from '@/lib/auto-trade';
 
 export const Route = createFileRoute('/_authenticated/trade')({
   head: () => pageHead('Digit Trading | Option Market Traders', 'Practise Over/Under, Matches/Differs and Even/Odd digit contracts on simulated volatility markets with easy ~90% win-rate demo settlement.'),
@@ -38,16 +38,6 @@ const GROUPS: { id: Group; label: string; sides: [string, string]; labels: [stri
   { id: 'MATCHES_DIFFERS', label: 'Matches / Differs', sides: ['MATCHES', 'DIFFERS'], labels: ['Matches', 'Differs'] },
   { id: 'EVEN_ODD', label: 'Even / Odd', sides: ['EVEN', 'ODD'], labels: ['Even', 'Odd'] },
 ];
-const SCAN_LABEL = {
-  volatility: 'Scanning volatility',
-  position: 'Scanning position',
-  ready: 'Ready to trade',
-} as const;
-type ScanPhase = keyof typeof SCAN_LABEL;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-function sidesFor(group: Group) {
-  return GROUPS.find((item) => item.id === group)?.sides ?? ['OVER', 'UNDER'];
-}
 const WIN_DIGIT_HOLD_MS = 2500;
 export const DEMO_WIN_RATE = 0.9;
 export function probability(c: string, b: number) {
@@ -75,8 +65,11 @@ function TradePage() {
   const [stopLoss, setStopLoss] = useState(String(DEFAULT_STOP_LOSS));
   const [autoOn, setAutoOn] = useState(false);
   const [scannerOn, setScannerOn] = useState(false);
-  const [scanPhase, setScanPhase] = useState<ScanPhase | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
   const [scanRunning, setScanRunning] = useState(false);
+  const [scanFrame, setScanFrame] = useState<ScanChoice | null>(null);
+  const [scanPrediction, setScanPrediction] = useState<ScanChoice | null>(null);
+  const [loadedScan, setLoadedScan] = useState<LoadedScan | null>(null);
   const [scannedSide, setScannedSide] = useState<string | null>(null);
   const [sessionProfit, setSessionProfit] = useState(0);
   const [sessionNotice, setSessionNotice] = useState<null | { kind: 'target' | 'stop'; profit: number }>(null);
@@ -90,9 +83,10 @@ function TradePage() {
   const placingRef = useRef(false);
   const autoRef = useRef(false);
   const stopRef = useRef(false);
-  const scanEachRef = useRef(false);
-  const scanTaskRef = useRef<Promise<boolean> | null>(null);
+  const scanOpenRef = useRef(false);
   const scanGenRef = useRef(0);
+  const scanTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const loadedScanRef = useRef<LoadedScan | null>(null);
   const scannedSideRef = useRef<string | null>(null);
   const barrierRef = useRef(barrier);
   barrierRef.current = barrier;
@@ -165,6 +159,7 @@ function TradePage() {
 
   useEffect(() => () => {
     if (winHoldTimerRef.current) clearTimeout(winHoldTimerRef.current);
+    for (const timer of scanTimersRef.current) clearTimeout(timer);
   }, []);
 
   const livePrice = ticks[ticks.length - 1] ?? 0;
@@ -189,13 +184,11 @@ function TradePage() {
   const g = GROUPS.find(x => x.id === group) ?? GROUPS[0];
   const stakeNum = Number(stake);
   const validStake = stakeNum >= 0.35 && stakeNum <= 5000;
-  const barrierOptions = group === 'EVEN_ODD' ? [] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+  const evenOddEntry = group === 'EVEN_ODD' && loadedScan != null && (loadedScan.contract === 'EVEN' || loadedScan.contract === 'ODD');
+  const barrierOptions = group === 'EVEN_ODD' && !evenOddEntry ? [] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
   async function buy(contract: string, options?: { forceWin?: boolean; marketId?: string; stake?: number; accountIsReal?: boolean }): Promise<Settlement | null> {
-    if (scanTaskRef.current) {
-      const scanned = await scanTaskRef.current;
-      if (!scanned) return null;
-    }
+    if (scanOpenRef.current) return null;
     if (runningRef.current || placingRef.current) return null;
     const stakeValue = options?.stake ?? stakeNum;
     const real = options?.accountIsReal ?? isReal;
@@ -243,77 +236,78 @@ function TradePage() {
     setMarket(next);
   }
 
-  function clearScan() {
+  function clearScanTimers() {
+    for (const timer of scanTimersRef.current) clearTimeout(timer);
+    scanTimersRef.current = [];
+  }
+
+  function clearLoadedScan() {
+    loadedScanRef.current = null;
+    setLoadedScan(null);
     scannedSideRef.current = null;
     setScannedSide(null);
-    setScanPhase(null);
+    if (!scanOpenRef.current) setScannerOn(false);
   }
 
-  async function runScannerPass(): Promise<boolean> {
+  function closeScanner() {
+    clearScanTimers();
+    scanGenRef.current += 1;
+    scanOpenRef.current = false;
+    setScanOpen(false);
+    setScanRunning(false);
+    setScanPrediction(null);
+    setScanFrame(null);
+    if (!loadedScanRef.current) setScannerOn(false);
+  }
+
+  function openScanner() {
+    if (runningRef.current || autoRef.current) return;
+    clearScanTimers();
     const gen = ++scanGenRef.current;
-    const active = () => scanGenRef.current === gen && !stopRef.current;
-    setScanRunning(true);
-    try {
-      setScanPhase('volatility');
-      const next = pickScannerMarket(MARKETS);
-      selectMarket(next);
-      await sleep(SCAN_STEP_MS);
-      if (!active()) {
-        if (scanGenRef.current === gen) clearScan();
-        return false;
-      }
-      setScanPhase('position');
-      const position = pickScannerPosition(sidesFor(groupRef.current));
-      if (!position || !active()) {
-        if (scanGenRef.current === gen) clearScan();
-        return false;
-      }
-      barrierRef.current = position.barrier;
-      scannedSideRef.current = position.side;
-      setBarrier(position.barrier);
-      setScannedSide(position.side);
-      await sleep(SCAN_STEP_MS);
-      if (!active()) {
-        if (scanGenRef.current === gen) clearScan();
-        return false;
-      }
-      setScanPhase('ready');
-      await sleep(SCAN_STEP_MS);
-      if (!active()) {
-        if (scanGenRef.current === gen) clearScan();
-        return false;
-      }
-      return true;
-    } finally {
-      if (scanGenRef.current === gen) setScanRunning(false);
-    }
-  }
-
-  function startScan(): Promise<boolean> {
-    if (scanTaskRef.current) return scanTaskRef.current;
-    const task = runScannerPass().finally(() => {
-      scanTaskRef.current = null;
-    });
-    scanTaskRef.current = task;
-    return task;
-  }
-
-  function scanMarkets() {
-    scanEachRef.current = true;
+    const sequence = buildScanSequence(MARKETS.length);
+    scanOpenRef.current = true;
+    setScanOpen(true);
     setScannerOn(true);
-    if (runningRef.current) {
-      toast.message('AI scanner will pick a new market on the next trade.');
-      return;
-    }
-    if (scanTaskRef.current || autoRef.current) return;
-    void (async () => {
-      const ok = await startScan();
-      if (!ok || !scanEachRef.current || autoRef.current || runningRef.current) return;
-      const side = scannedSideRef.current;
-      if (!side) return;
-      toast.success(`AI scanner selected ${marketRef.current.name}`);
-      await buy(side, { forceWin: true, marketId: marketRef.current.id });
-    })();
+    setScanRunning(true);
+    setScanPrediction(null);
+    setScanFrame(sequence[0] ?? null);
+    sequence.forEach((frame, index) => {
+      const timer = setTimeout(() => {
+        if (scanGenRef.current !== gen) return;
+        setScanFrame(frame);
+        if (index === sequence.length - 1) {
+          setScanPrediction(frame);
+          setScanRunning(false);
+        }
+      }, index * SCAN_FRAME_MS);
+      scanTimersRef.current.push(timer);
+    });
+  }
+
+  function loadPrediction() {
+    const choice = scanPrediction;
+    if (!choice) return;
+    const nextMarket = MARKETS[choice.marketIndex];
+    const nextGroup = scanContractGroup(choice.contract);
+    if (!nextMarket || !nextGroup) return;
+    clearScanTimers();
+    scanGenRef.current += 1;
+    selectMarket(nextMarket);
+    groupRef.current = nextGroup;
+    setGroup(nextGroup);
+    barrierRef.current = choice.entry;
+    setBarrier(choice.entry);
+    const loaded: LoadedScan = { marketId: nextMarket.id, contract: choice.contract, entry: choice.entry };
+    loadedScanRef.current = loaded;
+    setLoadedScan(loaded);
+    scannedSideRef.current = choice.contract;
+    setScannedSide(choice.contract);
+    setScannerOn(true);
+    scanOpenRef.current = false;
+    setScanOpen(false);
+    setScanRunning(false);
+    setScanPrediction(null);
+    setScanFrame(null);
   }
 
   function requestStop() {
@@ -322,7 +316,8 @@ function TradePage() {
   }
 
   async function startAuto(): Promise<void> {
-    if (autoRef.current || runningRef.current || placingRef.current || scanTaskRef.current) return;
+    const loaded = loadedScanRef.current;
+    if (autoRef.current || runningRef.current || placingRef.current || scanOpenRef.current || !loaded) return;
     const target = Number(targetProfit);
     const stop = Number(stopLoss);
     if (!Number.isFinite(target) || target <= 0 || !Number.isFinite(stop) || stop <= 0) {
@@ -330,8 +325,7 @@ function TradePage() {
       return;
     }
     if (!validStake) { toast.error('Stake must be between 0.35 and 5,000 USD'); return; }
-    const side = tradableSide(g.sides, barrier);
-    if (!side) { toast.error('Choose a prediction this contract can buy.'); return; }
+    const side = loaded.contract;
     const opening = isReal ? realFunds.data : account.data;
     if (opening == null) {
       toast.error(isReal ? 'Real balance is still loading.' : 'Demo balance is still loading.');
@@ -353,13 +347,7 @@ function TradePage() {
     try {
       while (autoRef.current && !stopRef.current) {
         if (autoTradeDecision({ sessionProfit: session, targetProfit: target, stopLoss: stop, balance, stake: stakeValue }) !== 'continue') break;
-        let contract = side;
-        if (scanEachRef.current) {
-          const scanned = await startScan();
-          if (!scanned || stopRef.current || !autoRef.current) break;
-          contract = scannedSideRef.current ?? side;
-        }
-        const result = await buy(contract, { forceWin: true, marketId: marketRef.current.id, stake: stakeValue, accountIsReal });
+        const result = await buy(side, { forceWin: true, marketId: marketRef.current.id, stake: stakeValue, accountIsReal });
         if (!result) break;
         await waitUntilSettled();
         session = addSessionProfit(session, result.profit);
@@ -393,7 +381,7 @@ function TradePage() {
   if (!g) return null;
   return <div className="trade-shell"><SiteHeader /><main className="trade-page">
     <div className="trade-topbar">
-      <select className="trade-select" value={market.id} onChange={e => { const next = MARKETS.find(m => m.id === e.target.value); if (!next || ticketLocked || scanRunning) return; selectMarket(next); scanEachRef.current = false; setScannerOn(false); clearScan(); }} disabled={ticketLocked || scanRunning} aria-label="Market">{MARKETS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+      <select className="trade-select" value={market.id} onChange={e => { const next = MARKETS.find(m => m.id === e.target.value); if (!next || ticketLocked || scanOpen) return; selectMarket(next); clearLoadedScan(); }} disabled={ticketLocked || scanOpen} aria-label="Market">{MARKETS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
       <div className="trade-balance"><Button asChild size="sm" className="trade-deposit-btn"><Link to="/dashboard"><ArrowDownToLine /> Deposit</Link></Button><Button asChild size="sm" variant="outline" className="trade-deposit-btn"><Link to="/dashboard"><ArrowUpFromLine /> Withdraw</Link></Button><div className="account-switcher" role="tablist" aria-label="Account type"><button role="tab" aria-selected={!isReal} className={!isReal ? 'selected' : ''} onClick={() => setAccountType('demo')} disabled={ticketLocked}>Demo</button><button role="tab" aria-selected={isReal} className={isReal ? 'selected' : ''} onClick={() => setAccountType('real')} disabled={ticketLocked}><img src="/usa-flag.svg" alt="" /> Real</button></div><span className="demo-badge">{isReal ? 'Real' : 'Demo'}</span><strong>{isReal ? (realFunds.data != null ? money(realFunds.data) : realFunds.isError ? '—' : '…') : account.data != null ? money(account.data) : '…'} USD</strong>{!isReal && <Button variant="ghost" size="icon" onClick={reset} aria-label="Reset practice balance" disabled={ticketLocked}><RotateCcw /></Button>}</div>
     </div>
     <div className="trade-layout">
@@ -408,13 +396,14 @@ function TradePage() {
         {lastResult && !running && <div className={`trade-status ${lastResult.won ? 'won' : 'lost'}`}>{lastResult.won ? `You won ${money(lastResult.profit)} USD` : `You lost ${money(-lastResult.profit)} USD`} — {lastResult.account === 'real' ? 'real' : 'demo'} exit digit {lastResult.digit}</div>}
       </section>
       <aside className="trade-panel">
-        <div className="ticket-heading"><label className="ticket-contract"><span>Contract</span><select aria-label="Contract type" value={group} onChange={e => setGroup(e.target.value as Group)} disabled={ticketLocked}>{GROUPS.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}</select></label><Button asChild variant="ghost" size="sm"><Link to="/positions"><History /> Positions</Link></Button></div>
-        {barrierOptions.length > 0 && <div className="prediction-control"><span className="trade-label">Digit</span><div className="tick-picker" aria-label="Last digit prediction">{barrierOptions.map(n => <Button variant="ghost" key={n} aria-label={`Predict digit ${n}`} aria-pressed={n === barrier} className={n === barrier ? 'active' : ''} onClick={() => setBarrier(n)} disabled={ticketLocked}>{n}</Button>)}</div></div>}
+        <div className="ticket-heading"><label className="ticket-contract"><span>Contract</span><select aria-label="Contract type" value={group} onChange={e => { const next = e.target.value as Group; groupRef.current = next; setGroup(next); if (loadedScanRef.current && scanContractGroup(loadedScanRef.current.contract) !== next) clearLoadedScan(); }} disabled={ticketLocked || scanOpen}>{GROUPS.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}</select></label><Button asChild variant="ghost" size="sm"><Link to="/positions"><History /> Positions</Link></Button></div>
+        {barrierOptions.length > 0 && <div className="prediction-control"><span className="trade-label">Digit</span><div className="tick-picker" aria-label="Last digit prediction">{barrierOptions.map(n => <Button variant="ghost" key={n} aria-label={`Predict digit ${n}`} aria-pressed={n === barrier} className={n === barrier ? 'active' : ''} onClick={() => { barrierRef.current = n; setBarrier(n); if (loadedScanRef.current && loadedScanRef.current.entry !== n) clearLoadedScan(); }} disabled={ticketLocked || scanOpen}>{n}</Button>)}</div></div>}
         <div className="ticket-fields"><label className="ticket-field" htmlFor="duration"><span>Duration (seconds)</span><select id="duration" value={duration} onChange={e => setDuration(Number(e.target.value))} disabled={ticketLocked}>{[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <option key={n} value={n}>{n} second{n === 1 ? '' : 's'}</option>)}</select></label><label className="ticket-field" htmlFor="stake"><span>Stake (USD)</span><input id="stake" type="number" min={0.35} max={5000} step={0.01} value={stake} onChange={e => setStake(e.target.value)} disabled={ticketLocked} /></label></div>
         <div className="ticket-fields ticket-auto"><label className="ticket-field" htmlFor="target-profit"><span>Target profit</span><input id="target-profit" aria-label="Target profit" type="number" min={0.01} step={0.01} value={targetProfit} onChange={e => setTargetProfit(e.target.value)} disabled={ticketLocked} /></label><label className="ticket-field" htmlFor="stop-loss"><span>Stop loss</span><input id="stop-loss" aria-label="Stop loss" type="number" min={0.01} step={0.01} value={stopLoss} onChange={e => setStopLoss(e.target.value)} disabled={ticketLocked} /></label></div>
-        <div className="ticket-auto-actions"><Button type="button" variant="outline" className="ticket-scanner" aria-pressed={scannerOn} aria-busy={scanRunning} onClick={scanMarkets} disabled={!!running && !autoOn}><ScanSearch /> AI scanner</Button>{autoOn ? <Button type="button" variant="destructive" onClick={requestStop}>Stop</Button> : <Button type="button" onClick={() => void startAuto()} disabled={!!running || scanRunning}>Auto trade</Button>}</div>
-        {scanPhase && <p className="ticket-scan-status" role="status" data-phase={scanPhase}>{scanPhase !== 'ready' && <LoaderCircle className="animate-spin" aria-hidden="true" />}{SCAN_LABEL[scanPhase]}</p>}
-        <div className="ticket-buy-actions">{g.sides.map((c, i) => { const realBlocked = isReal && (realFunds.data == null || stakeNum > realFunds.data); const disabled = realBlocked || ticketLocked || scanRunning || !validStake || (c === 'OVER' && barrier > 8) || (c === 'UNDER' && barrier < 1); const payout = validStake ? quotedPayout(stakeNum) : 0; return <Button key={c} className={`buy-btn ${i === 0 ? 'buy-up' : 'buy-down'}${scannerOn && scannedSide === c ? ' scanner-side' : ''}`} onClick={() => void buy(c, { forceWin: scannerOn })} disabled={disabled}>{i === 0 ? <TrendingUp /> : <TrendingDown />}<span><strong>{g.labels[i]}{group !== 'EVEN_ODD' ? ` ${barrier}` : ''}</strong><small>Payout {money(payout)} USD</small></span></Button>; })}</div>
+        <div className="ticket-auto-actions"><Button type="button" variant="outline" className="ticket-scanner" aria-pressed={scannerOn} aria-busy={scanRunning} onClick={openScanner} disabled={ticketLocked}><ScanSearch /> AI scanner</Button>{autoOn ? <Button type="button" variant="destructive" onClick={requestStop}>Stop</Button> : <Button type="button" onClick={() => void startAuto()} disabled={!!running || scanOpen || !loadedScan} title={loadedScan ? undefined : 'Load a prediction before auto trade'}>Auto trade</Button>}</div>
+        {scanOpen && scanFrame && <div className="ticket-scan-prompt" role="dialog" aria-label="AI scanner" data-phase={scanPrediction ? 'prediction' : 'scanning'}><div className="ticket-scan-prompt-head"><strong>{scanPrediction ? 'Prediction' : 'Scanning'}</strong><Button type="button" variant="ghost" size="icon" onClick={closeScanner} aria-label="Close scanner"><X /></Button></div><p className="ticket-scan-label">Volatility</p><div className="ticket-scan-chips" aria-label="Volatility markets">{MARKETS.map((item, index) => <span key={item.id} data-active={scanFrame.marketIndex === index ? 'true' : 'false'}>{item.id.replace('R_', '')}</span>)}</div><p className="ticket-scan-label">Contract</p><div className="ticket-scan-chips" aria-label="Contracts">{SCAN_CONTRACTS.map((contract) => <span key={contract} data-active={scanFrame.contract === contract ? 'true' : 'false'}>{scanContractLabel(contract)}</span>)}</div><p className="ticket-scan-label">Entry</p><div className="ticket-scan-chips" aria-label="Entries">{[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((entry) => <span key={entry} data-active={scanFrame.entry === entry ? 'true' : 'false'}>{entry}</span>)}</div><p className="ticket-scan-readout" aria-hidden="true">{MARKETS[scanFrame.marketIndex]?.name} · {scanContractLabel(scanFrame.contract)} · Entry {scanFrame.entry}</p>{scanPrediction ? <p className="ticket-scan-prediction" role="status">{MARKETS[scanPrediction.marketIndex]?.name} · {scanContractLabel(scanPrediction.contract)} · Entry {scanPrediction.entry}</p> : <p className="ticket-scan-status" role="status" data-phase="scanning"><LoaderCircle className="animate-spin" aria-hidden="true" />Scanning markets</p>}{scanPrediction && <Button type="button" onClick={loadPrediction}>Load prediction</Button>}</div>}
+        {loadedScan && !scanOpen && <p className="ticket-scan-loaded" role="status" data-loaded-market={loadedScan.marketId} data-loaded-contract={loadedScan.contract} data-loaded-entry={loadedScan.entry}>Prediction loaded: {MARKETS.find((item) => item.id === loadedScan.marketId)?.name} · {scanContractLabel(loadedScan.contract)} · Entry {loadedScan.entry}. Click Auto trade to start.</p>}
+        <div className="ticket-buy-actions">{g.sides.map((c, i) => { const realBlocked = isReal && (realFunds.data == null || stakeNum > realFunds.data); const scanPurchase = loadedScanMatches(loadedScan, { marketId: market.id, contract: c, entry: barrier }); const disabled = realBlocked || ticketLocked || scanOpen || !validStake || (c === 'OVER' && barrier > 8) || (c === 'UNDER' && barrier < 1); const payout = validStake ? quotedPayout(stakeNum) : 0; const entryLabel = group === 'EVEN_ODD' ? (scanPurchase ? ` ${barrier}` : '') : ` ${barrier}`; return <Button key={c} className={`buy-btn ${i === 0 ? 'buy-up' : 'buy-down'}${!scanOpen && scannedSide === c ? ' scanner-side' : ''}`} onClick={() => void buy(c, { forceWin: scanPurchase })} disabled={disabled}>{i === 0 ? <TrendingUp /> : <TrendingDown />}<span><strong>{g.labels[i]}{entryLabel}</strong><small>Payout {money(payout)} USD</small></span></Button>; })}</div>
         {isReal && realFunds.isError && <p className="ticket-disclaimer" role="alert">Real balance could not be loaded.</p>}
         {isReal && realFunds.data != null && validStake && stakeNum > realFunds.data && <p className="ticket-disclaimer" role="status">Stake is more than your available real balance.</p>}
         {autoOn && <p className="ticket-disclaimer" role="status">Session profit {money(sessionProfit)} USD</p>}

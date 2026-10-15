@@ -89,3 +89,129 @@ export function pickScannerPosition(sides: readonly string[], random: () => numb
   if (tradableSide([side], barrier) !== side) return null;
   return { barrier, side };
 }
+
+export const SCAN_CONTRACTS = ['MATCHES', 'DIFFERS', 'OVER', 'UNDER', 'EVEN', 'ODD'] as const;
+export type ScanContract = (typeof SCAN_CONTRACTS)[number];
+
+export type ScanChoice = {
+  marketIndex: number;
+  contract: ScanContract;
+  entry: number;
+};
+
+export type LoadedScan = {
+  marketId: string;
+  contract: ScanContract;
+  entry: number;
+};
+
+/** Prompt is shown on the click, before this bound. Frames then play inside it. */
+export const SCAN_PROMPT_MAX_MS = 2000;
+/** How long each random scan frame stays visible inside the prompt. */
+export const SCAN_FRAME_MS = 300;
+
+/** Digits or barriers that win for the contract. */
+export function winningScanEntries(contract: string): readonly number[] {
+  switch (contract) {
+    case 'EVEN':
+      return [0, 2, 4, 6, 8];
+    case 'ODD':
+      return [1, 3, 5, 7, 9];
+    case 'OVER':
+      return [0, 1, 2, 3, 4, 5, 6, 7, 8];
+    case 'UNDER':
+      return [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    case 'MATCHES':
+    case 'DIFFERS':
+      return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    default:
+      return [];
+  }
+}
+
+export function scanContractGroup(contract: string): 'OVER_UNDER' | 'MATCHES_DIFFERS' | 'EVEN_ODD' | null {
+  if (contract === 'OVER' || contract === 'UNDER') return 'OVER_UNDER';
+  if (contract === 'MATCHES' || contract === 'DIFFERS') return 'MATCHES_DIFFERS';
+  if (contract === 'EVEN' || contract === 'ODD') return 'EVEN_ODD';
+  return null;
+}
+
+export function scanContractLabel(contract: string): string {
+  switch (contract) {
+    case 'MATCHES':
+      return 'Matches';
+    case 'DIFFERS':
+      return 'Differs';
+    case 'OVER':
+      return 'Over';
+    case 'UNDER':
+      return 'Under';
+    case 'EVEN':
+      return 'Even';
+    case 'ODD':
+      return 'Odd';
+    default:
+      return contract;
+  }
+}
+
+/** True only when the ticket still holds the loaded scan, so a manual purchase can force a win. */
+export function loadedScanMatches(
+  loaded: LoadedScan | null,
+  ticket: { marketId: string; contract: string; entry: number },
+): boolean {
+  if (!loaded) return false;
+  return loaded.marketId === ticket.marketId && loaded.contract === ticket.contract && loaded.entry === ticket.entry;
+}
+
+function pickIndex(length: number, random: () => number): number {
+  if (length <= 1) return 0;
+  return Math.min(length - 1, Math.floor(random() * length));
+}
+
+function shuffle<T>(items: readonly T[], random: () => number): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = pickIndex(i + 1, random);
+    const swap = copy[i]!;
+    copy[i] = copy[j]!;
+    copy[j] = swap;
+  }
+  return copy;
+}
+
+/** One random volatility, contract, and winning entry. */
+export function pickScanChoice(marketCount: number, random: () => number = Math.random): ScanChoice {
+  const count = Math.max(1, marketCount);
+  const contract = SCAN_CONTRACTS[pickIndex(SCAN_CONTRACTS.length, random)]!;
+  const entries = winningScanEntries(contract);
+  return {
+    marketIndex: pickIndex(count, random),
+    contract,
+    entry: entries[pickIndex(entries.length, random)] ?? 0,
+  };
+}
+
+/**
+ * A visible random pass across every contract and every listed volatility,
+ * then one winning prediction. The last item is the prediction. The ticket
+ * stays unchanged until the trader loads it.
+ */
+export function buildScanSequence(marketCount: number, random: () => number = Math.random): ScanChoice[] {
+  const count = Math.max(1, marketCount);
+  const contracts = shuffle(SCAN_CONTRACTS, random);
+  const marketOrder = shuffle(Array.from({ length: count }, (_, index) => index), random);
+  const steps = Math.max(contracts.length, marketOrder.length);
+  const frames: ScanChoice[] = [];
+  for (let i = 0; i < steps; i++) {
+    const contract = contracts[i % contracts.length]!;
+    const entries = winningScanEntries(contract);
+    frames.push({
+      marketIndex: marketOrder[i % marketOrder.length]!,
+      contract,
+      entry: entries[pickIndex(entries.length, random)] ?? 0,
+    });
+  }
+  frames.push(pickScanChoice(count, random));
+  return frames;
+}
