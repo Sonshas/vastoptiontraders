@@ -51,6 +51,28 @@ export function digitsMatchingOutcome(contract: string, barrier: number, won: bo
   return digits;
 }
 
+export function lastDigitOfQuote(price: number, decimals: number): number {
+  return Number(Math.abs(price).toFixed(Math.max(0, decimals)).slice(-1));
+}
+
+/** Final displayed digit of a quote, replaced so the price ends on `digit`. */
+export function quoteWithLastDigit(price: number, decimals: number, digit: number): number {
+  const places = Math.max(0, decimals);
+  const safeDigit = Math.min(9, Math.max(0, Math.trunc(Math.abs(digit))));
+  const text = Math.abs(price).toFixed(places);
+  const value = Number(`${text.slice(0, -1)}${safeDigit}`);
+  return price < 0 ? -value : value;
+}
+
+/**
+ * While a win is held, the circle stays on the settlement digit.
+ * A null hold keeps the live tick.
+ */
+export function heldCursorDigit(exitDigit: number | null, liveDigit: number): number {
+  if (exitDigit == null || !Number.isInteger(exitDigit) || exitDigit < 0 || exitDigit > 9) return liveDigit;
+  return exitDigit;
+}
+
 /** True when a roll in [0, 1) is a demo win at the given percentage. */
 export function practiceTradeWins(roll: number, winRatePercent: unknown): boolean {
   return settlementRollWins(roll, winRatePercent);

@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownToLine, ArrowUpFromLine, History, LoaderCircle, RotateCcw, ScanSearch, TrendingUp, TrendingDown } from 'lucide-react';
 import { toast } from 'sonner';
@@ -10,6 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useSession } from '@/components/session-context';
 import { pageHead } from '@/lib/page-head';
 import { quotedPayout } from '@/lib/payout';
+import { heldCursorDigit, lastDigitOfQuote, quoteWithLastDigit } from '@/lib/practice-win-rate';
 import { loadAvailableRealBalance } from '@/lib/real-balance';
 import { useSimulatedMarket } from '@/hooks/use-simulated-market';
 import { MarketChart } from '@/components/market-chart';
@@ -47,7 +48,6 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 function sidesFor(group: Group) {
   return GROUPS.find((item) => item.id === group)?.sides ?? ['OVER', 'UNDER'];
 }
-const lastDigit = (p: number, dec: number) => Number(p.toFixed(dec).slice(-1));
 const WIN_DIGIT_HOLD_MS = 2500;
 export const DEMO_WIN_RATE = 0.9;
 export function probability(c: string, b: number) {
@@ -167,14 +167,25 @@ function TradePage() {
     if (winHoldTimerRef.current) clearTimeout(winHoldTimerRef.current);
   }, []);
 
-  const price = ticks[ticks.length - 1] ?? 0;
-  const prev = ticks[ticks.length - 2] ?? price;
-  tickUpRef.current = price >= prev;
-  const digit = ticks.length ? lastDigit(price, feed.decimals) : 0;
-  const markerDigit = winHold?.digit ?? digit;
-  const markerUp = winHold ? winHold.up : price >= prev;
+  const livePrice = ticks[ticks.length - 1] ?? 0;
+  const prev = ticks[ticks.length - 2] ?? livePrice;
+  tickUpRef.current = livePrice >= prev;
+  const liveDigit = ticks.length ? lastDigitOfQuote(livePrice, feed.decimals) : 0;
+  const cursorDigit = heldCursorDigit(winHold?.digit ?? null, liveDigit);
+  const price = winHold ? quoteWithLastDigit(livePrice, feed.decimals, cursorDigit) : livePrice;
+  const markerDigit = winHold ? cursorDigit : liveDigit;
+  const digit = markerDigit;
+  const markerUp = winHold ? winHold.up : livePrice >= prev;
   const showMarker = winHold != null || ticks.length > 0;
-  const stats = ticks.slice(-100).reduce((counts, tick) => { counts[lastDigit(tick, feed.decimals)] += 1; return counts; }, Array(10).fill(0) as number[]).map(n => (ticks.length ? (n / Math.min(ticks.length, 100)) * 100 : 0));
+  const chartTicks = useMemo(() => {
+    if (!winHold || feed.ticks.length === 0) return feed.ticks;
+    const next = feed.ticks.slice();
+    const last = next[next.length - 1];
+    if (!last) return feed.ticks;
+    next[next.length - 1] = { ...last, quote: quoteWithLastDigit(last.quote, feed.decimals, heldCursorDigit(winHold.digit, lastDigitOfQuote(last.quote, feed.decimals))) };
+    return next;
+  }, [feed.ticks, feed.decimals, winHold]);
+  const stats = ticks.slice(-100).reduce((counts, tick) => { counts[lastDigitOfQuote(tick, feed.decimals)] += 1; return counts; }, Array(10).fill(0) as number[]).map(n => (ticks.length ? (n / Math.min(ticks.length, 100)) * 100 : 0));
   const g = GROUPS.find(x => x.id === group) ?? GROUPS[0];
   const stakeNum = Number(stake);
   const validStake = stakeNum >= 0.35 && stakeNum <= 5000;
@@ -388,9 +399,9 @@ function TradePage() {
     <div className="trade-layout">
       <section className="trade-chart-card">
         <div className="live-market-heading"><div><h1>{market.name}</h1></div><span className={`feed-status ${feed.status}`} role="status"><i />{feed.status === 'live' ? 'Live' : feed.status === 'connecting' ? 'Connecting' : 'Disconnected'}</span></div>
-        <div className="live-market-price"><strong className={price >= prev ? 'up' : 'down'}>{ticks.length ? price.toFixed(feed.decimals) : '—'}</strong><span className={price >= prev ? 'up' : 'down'}>{ticks.length > 1 ? `${price >= prev ? '+' : ''}${(price - prev).toFixed(feed.decimals)}` : '—'}</span><small>{feed.updated ? new Date(feed.updated * 1000).toISOString().slice(11, 19) + ' UTC' : 'Awaiting prices'}</small></div>
+        <div className="live-market-price"><strong className={livePrice >= prev ? 'up' : 'down'}>{ticks.length ? price.toFixed(feed.decimals) : '—'}</strong><span className={livePrice >= prev ? 'up' : 'down'}>{ticks.length > 1 ? `${livePrice >= prev ? '+' : ''}${(livePrice - prev).toFixed(feed.decimals)}` : '—'}</span><small>{feed.updated ? new Date(feed.updated * 1000).toISOString().slice(11, 19) + ' UTC' : 'Awaiting prices'}</small></div>
         {feed.error && <div className="feed-error" role="alert">{feed.error}<Button variant="outline" size="sm" onClick={feed.reconnect}>Reconnect</Button></div>}
-        <MarketChart ticks={feed.ticks} decimals={feed.decimals} symbol={market.id} />
+        <MarketChart ticks={chartTicks} decimals={feed.decimals} symbol={market.id} />
         <div className="digit-stats-heading"><h2>Last digit distribution</h2><span>{Math.min(ticks.length, 100)} market ticks · Last digit {ticks.length ? digit : '—'}</span></div>
         <div className="digit-row" aria-label="Last digit statistics">{stats.map((s, d) => <div key={d} className="digit-cell" aria-current={showMarker && d === markerDigit ? 'true' : undefined}><span className="digit-face"><span className="digit-num">{d}</span>{showMarker && d === markerDigit && <span className={`digit-marker ${markerUp ? 'up' : 'down'}${winHold ? ' is-held' : ''}`} aria-hidden="true"><span className="digit-marker-circle" /><span className="digit-marker-cursor" /></span>}{winHold && d === markerDigit && <span className="digit-won">Won</span>}</span><small>{s.toFixed(1)}%</small></div>)}</div>
         {running && <div className="trade-status">{running.account === 'real' ? 'Real' : 'Demo'} contract running: {running.contract.toLowerCase()} — {running.left} tick{running.left === 1 ? '' : 's'} left</div>}
