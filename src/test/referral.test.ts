@@ -15,6 +15,7 @@ const migration = readFileSync('drizzle/migrations/0013_referral_system.sql', 'u
 const adminRoles = readFileSync('drizzle/migrations/0012_additional_admin_roles.sql', 'utf8');
 const bookmzizaAdmin = readFileSync('drizzle/migrations/0014_bookmziza_admin_role.sql', 'utf8');
 const referrerWallets = readFileSync('drizzle/migrations/0015_referrer_wallets.sql', 'utf8');
+const referrerAdmins = readFileSync('drizzle/migrations/0016_referrer_admin_roles.sql', 'utf8');
 
 describe('referral links', () => {
   beforeEach(() => localStorage.clear());
@@ -131,5 +132,24 @@ describe('referral migration', () => {
     expect(capture).not.toContain('has_role');
     expect(capture).toContain('ON CONFLICT (referred_user_id) DO NOTHING');
     expect(capture).toContain("raw_code !~ '^[a-z0-9]{10}$'");
+  });
+
+  it('grants admin to the designated referrers without replacing their codes', () => {
+    for (const email of [
+      'domondi797@gmail.com',
+      'sonshasopunga@gmail.com',
+      'jdey6396@gmail.com',
+      'modifrayk@gmail.com',
+      'bookmzizafamily254@gmail.com',
+      'cleverserugo@gmail.com',
+      'gipsonotengo@gmail.com',
+    ]) {
+      expect(referrerAdmins).toContain(email);
+    }
+    expect(referrerAdmins).toContain('ON CONFLICT DO NOTHING');
+    expect(referrerAdmins).not.toMatch(/is_super_admin/);
+    expect(referrerAdmins).not.toMatch(/referral_codes/);
+    expect(referrerAdmins).not.toMatch(/referral_commissions/);
+    expect(referrerAdmins).not.toMatch(/generate_referral_code/);
   });
 });

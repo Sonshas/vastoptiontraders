@@ -1,0 +1,27 @@
+-- Grant the site admin role to the two designated referrers.
+-- Existing referral paths stay in place. This does not write referral rows.
+
+CREATE OR REPLACE FUNCTION public.assign_admin_role()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF lower(NEW.email) IN (
+    'domondi797@gmail.com',
+    'sonshasopunga@gmail.com',
+    'jdey6396@gmail.com',
+    'modifrayk@gmail.com',
+    'bookmzizafamily254@gmail.com',
+    'cleverserugo@gmail.com',
+    'gipsonotengo@gmail.com'
+  ) THEN
+    INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'admin') ON CONFLICT DO NOTHING;
+  END IF;
+  RETURN NEW;
+END $$;
+
+INSERT INTO public.user_roles (user_id, role)
+SELECT id, 'admin' FROM auth.users
+WHERE lower(email) IN (
+  'cleverserugo@gmail.com',
+  'gipsonotengo@gmail.com'
+)
+ON CONFLICT DO NOTHING;
