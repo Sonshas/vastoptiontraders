@@ -1,5 +1,6 @@
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { Copy, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { SiteHeader } from '@/components/site-header';
@@ -12,15 +13,15 @@ import { supabase } from '@/integrations/supabase/client';
 import {
   formatReferralUsd,
   parseReferralDashboard,
+  referralAccessDenied,
+  referralErrorText,
   referralUrl,
   type ReferralAdminSnapshot,
   type ReferralDashboard,
 } from '@/lib/referral';
 
 function referralErrorMessage(error: unknown): string {
-  const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
-    ? error.message
-    : error instanceof Error ? error.message : '';
+  const message = referralErrorText(error);
   if (/forbidden/i.test(message)) return 'You can only view your own referral dashboard.';
   if (/not found/i.test(message)) return 'That referral link does not match a referrer.';
   return 'The referral dashboard could not be loaded.';
@@ -136,6 +137,7 @@ function DashboardBody({ data }: { data: ReferralDashboard }) {
 export function ReferralDashboard({ code }: { code?: string | undefined }) {
   const access = useCanOpenReferralDashboard();
   const { user } = useSession();
+  const navigate = useNavigate();
   const dashboard = useQuery({
     queryKey: ['referral-dashboard', user?.id, code ?? ''],
     enabled: access.data === true,
@@ -145,6 +147,12 @@ export function ReferralDashboard({ code }: { code?: string | undefined }) {
       return parseReferralDashboard(data);
     },
   });
+  const deniedForeignCode = Boolean(code) && dashboard.error != null && referralAccessDenied(dashboard.error);
+
+  useEffect(() => {
+    if (!deniedForeignCode) return;
+    void navigate({ to: '/referrals', search: {}, replace: true });
+  }, [deniedForeignCode, navigate]);
 
   if (access.isPending) {
     return <><SiteHeader /><main className="container-wide py-10"><p role="status">Checking access…</p></main></>;
@@ -162,7 +170,7 @@ export function ReferralDashboard({ code }: { code?: string | undefined }) {
       </p>
     </header>
     {dashboard.isPending ? <p role="status">Loading referral dashboard…</p> : null}
-    {dashboard.error ? <p role="alert">{referralErrorMessage(dashboard.error)}</p> : null}
+    {dashboard.error && !deniedForeignCode ? <p role="alert">{referralErrorMessage(dashboard.error)}</p> : null}
     {dashboard.data ? <DashboardBody data={dashboard.data} /> : null}
   </main></>;
 }

@@ -72,6 +72,38 @@ export function signupOptions(origin: string, code: string | null) {
   return { emailRedirectTo: origin, data: { referral_code: referralCode } };
 }
 
+export type ReferralLinkDecision =
+  | { kind: 'signup' }
+  | { kind: 'dashboard'; code: string }
+  | { kind: 'own-wallet' }
+  | { kind: 'trade' };
+
+export function decideReferralLink(input: {
+  loggedIn: boolean;
+  code: string | null | undefined;
+  access: string | null;
+  canOpenOwnWallet: boolean;
+}): ReferralLinkDecision {
+  if (!input.loggedIn) return { kind: 'signup' };
+  const code = normalizeReferralCode(input.code);
+  if (code && (input.access === 'owner' || input.access === 'super')) {
+    return { kind: 'dashboard', code };
+  }
+  if (input.canOpenOwnWallet) return { kind: 'own-wallet' };
+  return { kind: 'trade' };
+}
+
+export function referralErrorText(error: unknown): string {
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message;
+  }
+  return error instanceof Error ? error.message : '';
+}
+
+export function referralAccessDenied(error: unknown): boolean {
+  return /forbidden/i.test(referralErrorText(error));
+}
+
 function moneyNumber(value: unknown): number {
   const amount = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
   if (!Number.isFinite(amount)) return 0;

@@ -4,7 +4,7 @@ import { SiteHeader } from '@/components/site-header';
 import { useSession } from '@/components/session-context';
 import { supabase } from '@/integrations/supabase/client';
 import { pageHead } from '@/lib/page-head';
-import { rememberReferralCode } from '@/lib/referral';
+import { decideReferralLink, normalizeReferralCode, rememberReferralCode } from '@/lib/referral';
 
 export const Route = createFileRoute('/r/$code')({
   head: () => pageHead('Referral | Option Market Traders', 'Open an Option Market Traders referral link and create your account.'),
@@ -19,21 +19,37 @@ function ReferralLinkPage() {
   useEffect(() => {
     if (loading) return;
     let cancelled = false;
-    const stored = rememberReferralCode(code);
-
     async function continueFromLink() {
       if (!user) {
+        rememberReferralCode(code);
         await navigate({ to: '/auth', search: { mode: 'signup' }, replace: true });
         return;
       }
-      if (!stored) {
-        await navigate({ to: '/trade', replace: true });
+      const normalized = normalizeReferralCode(code);
+      let access: string | null = null;
+      if (normalized) {
+        const { data, error } = await supabase.rpc('referral_link_access', { _code: normalized });
+        if (cancelled) return;
+        access = !error && typeof data === 'string' ? data : null;
+      }
+      let canOpenOwnWallet = false;
+      if (access !== 'owner' && access !== 'super') {
+        const opened = await supabase.rpc('can_open_referral_dashboard');
+        if (cancelled) return;
+        canOpenOwnWallet = opened.data === true;
+      }
+      const decision = decideReferralLink({
+        loggedIn: true,
+        code: normalized,
+        access,
+        canOpenOwnWallet,
+      });
+      if (decision.kind === 'dashboard') {
+        await navigate({ to: '/referrals', search: { code: decision.code }, replace: true });
         return;
       }
-      const { data, error } = await supabase.rpc('referral_link_access', { _code: stored });
-      if (cancelled) return;
-      if (!error && (data === 'owner' || data === 'super')) {
-        await navigate({ to: '/referrals', search: { code: stored }, replace: true });
+      if (decision.kind === 'own-wallet') {
+        await navigate({ to: '/referrals', search: {}, replace: true });
         return;
       }
       await navigate({ to: '/trade', replace: true });
