@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useSession } from '@/components/session-context';
+import { useCanOpenReferralDashboard } from '@/hooks/use-referral-access';
 import { supabase } from '@/integrations/supabase/client';
-import { useIsAdmin } from '@/routes/_authenticated/admin';
 import {
   formatReferralUsd,
   parseReferralDashboard,
@@ -22,7 +22,7 @@ function referralErrorMessage(error: unknown): string {
     ? error.message
     : error instanceof Error ? error.message : '';
   if (/forbidden/i.test(message)) return 'You can only view your own referral dashboard.';
-  if (/not found/i.test(message)) return 'That referral link does not match an admin.';
+  if (/not found/i.test(message)) return 'That referral link does not match a referrer.';
   return 'The referral dashboard could not be loaded.';
 }
 
@@ -61,13 +61,13 @@ function ReferredUsers({ admin }: { admin: ReferralAdminSnapshot }) {
             <p className="text-sm text-muted-foreground">Joined {new Date(user.joined_at).toLocaleString()}</p>
           </div>
           <p className="mt-2 text-sm">
-            Completed deposits {formatReferralUsd(user.deposit_total)} USD · Referral commission {formatReferralUsd(user.commission_total)} USD
+            Completed deposits {formatReferralUsd(user.deposit_total)} USD · 30% credited {formatReferralUsd(user.commission_total)} USD
           </p>
           {user.completed_deposits.length ? (
             <ul className="mt-3 space-y-2 text-sm">
               {user.completed_deposits.map((deposit, index) => (
                 <li key={`${deposit.completed_at}-${deposit.amount}-${index}`}>
-                  {new Date(deposit.completed_at).toLocaleString()} · {formatReferralUsd(deposit.amount)} USD deposit · {deposit.commission == null ? 'No commission recorded' : `${formatReferralUsd(deposit.commission)} USD referral commission`}
+                  {new Date(deposit.completed_at).toLocaleString()} · {formatReferralUsd(deposit.amount)} USD deposit · {deposit.commission == null ? 'No referral credit recorded' : `${formatReferralUsd(deposit.commission)} USD credited to the referral wallet`}
                 </li>
               ))}
             </ul>
@@ -84,7 +84,7 @@ function AdminReferralCard({ admin, yours, superView }: { admin: ReferralAdminSn
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">{yours ? 'Your referral link' : admin.email}</h2>
-          <p className="text-sm text-muted-foreground">{yours ? admin.email : 'Admin referral dashboard'}</p>
+          <p className="text-sm text-muted-foreground">{yours ? admin.email : 'Referral dashboard'}</p>
         </div>
         {superView && (
           <Button asChild variant="outline">
@@ -95,8 +95,9 @@ function AdminReferralCard({ admin, yours, superView }: { admin: ReferralAdminSn
       <ReferralLinkField code={admin.code} />
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <p className="text-sm text-muted-foreground">Referral commission</p>
-          <p className="text-2xl font-bold">{formatReferralUsd(admin.commission_total)} USD</p>
+          <p className="text-sm text-muted-foreground">Referral wallet</p>
+          <p className="text-2xl font-bold" aria-label="Referral wallet balance">{formatReferralUsd(admin.wallet_balance)} USD</p>
+          <p className="text-xs text-muted-foreground">Running total of 30% credits. This is not your trading balance.</p>
         </div>
         <div>
           <p className="text-sm text-muted-foreground">Referred users</p>
@@ -112,10 +113,10 @@ function DashboardBody({ data }: { data: ReferralDashboard }) {
   if (data.scope === 'all') {
     return (
       <div className="space-y-6">
-        <p className="text-sm text-muted-foreground">Every admin referral dashboard is listed here. Other admins can see only their own.</p>
+        <p className="text-sm text-muted-foreground">Every referrer is listed here with their referral wallet. Each referrer sees only their own dashboard.</p>
         {data.admins?.length ? data.admins.map(admin => (
           <AdminReferralCard key={admin.code} admin={admin} yours={admin.code === data.own_code} superView />
-        )) : <p className="text-sm text-muted-foreground">No admin referral links yet.</p>}
+        )) : <p className="text-sm text-muted-foreground">No referral links yet.</p>}
       </div>
     );
   }
@@ -124,7 +125,7 @@ function DashboardBody({ data }: { data: ReferralDashboard }) {
     <div className="space-y-4">
       {data.is_super_admin && (
         <Button asChild variant="outline">
-          <Link to="/referrals" search={{}}>View all admin dashboards</Link>
+          <Link to="/referrals" search={{}}>View all referral dashboards</Link>
         </Button>
       )}
       <AdminReferralCard admin={data.admin} yours={data.admin.code === data.own_code} superView={false} />
@@ -133,11 +134,11 @@ function DashboardBody({ data }: { data: ReferralDashboard }) {
 }
 
 export function ReferralDashboard({ code }: { code?: string | undefined }) {
-  const admin = useIsAdmin();
+  const access = useCanOpenReferralDashboard();
   const { user } = useSession();
   const dashboard = useQuery({
     queryKey: ['referral-dashboard', user?.id, code ?? ''],
-    enabled: admin.data === true,
+    enabled: access.data === true,
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_referral_dashboard', { _code: code ?? '' });
       if (error) throw error;
@@ -145,11 +146,11 @@ export function ReferralDashboard({ code }: { code?: string | undefined }) {
     },
   });
 
-  if (admin.isPending) {
+  if (access.isPending) {
     return <><SiteHeader /><main className="container-wide py-10"><p role="status">Checking access…</p></main></>;
   }
-  if (!admin.data) {
-    return <><SiteHeader /><main className="container-wide py-16 text-center"><ShieldCheck className="mx-auto mb-3" /><h1 className="text-2xl font-bold">Admins only</h1><p className="text-muted-foreground mt-2">This account does not have access to referral dashboards.</p><Button asChild variant="outline" className="mt-6"><Link to="/dashboard">Back to dashboard</Link></Button></main></>;
+  if (!access.data) {
+    return <><SiteHeader /><main className="container-wide py-16 text-center"><ShieldCheck className="mx-auto mb-3" /><h1 className="text-2xl font-bold">Referral dashboard unavailable</h1><p className="text-muted-foreground mt-2">This account does not have a referral dashboard.</p><Button asChild variant="outline" className="mt-6"><Link to="/dashboard">Back to dashboard</Link></Button></main></>;
   }
 
   return <><SiteHeader /><main className="container-wide space-y-6 py-8 pb-28">
@@ -157,7 +158,7 @@ export function ReferralDashboard({ code }: { code?: string | undefined }) {
       <p className="section-kicker">REFERRALS</p>
       <h1 className="text-3xl font-bold">Referral dashboard</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        Referral commission is 30% of each completed USD deposit from people who join through an admin link. Pending and rejected deposits pay nothing. This ledger is separate from trading balances and is not a withdrawal.
+        The referral wallet equals the 30% credited from completed USD deposits. When someone joins through your link and a deposit is completed, 30% of that amount, rounded to cents, is credited once. Pending and rejected deposits pay nothing. This wallet is separate from trading balances and is not a withdrawal.
       </p>
     </header>
     {dashboard.isPending ? <p role="status">Loading referral dashboard…</p> : null}

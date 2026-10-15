@@ -9,7 +9,7 @@ export const Route = createFileRoute('/_authenticated/referrals')({
     const code = typeof rawCode === 'string' ? normalizeReferralCode(rawCode) : null;
     return code ? { code } : {};
   },
-  head: () => pageHead('Referral dashboard | Option Market Traders', 'View your Option Market Traders referral link, referred users, and referral commission.'),
+  head: () => pageHead('Referral dashboard | Option Market Traders', 'View your Option Market Traders referral link, referred users, and referral wallet balance.'),
   component: ReferralsPage,
 });
 

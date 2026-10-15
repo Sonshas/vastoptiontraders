@@ -20,6 +20,7 @@ export type ReferralAdminSnapshot = {
   email: string;
   code: string;
   commission_total: number;
+  wallet_balance: number;
   referred_users: ReferredUser[];
 };
 
@@ -94,6 +95,7 @@ type LooseRecord = {
   commission?: unknown;
   commission_total?: unknown;
   completed_at?: unknown;
+  wallet_balance?: unknown;
   completed_deposits?: unknown;
   deposit_total?: unknown;
   email?: unknown;
@@ -148,10 +150,12 @@ function parseAdmin(value: unknown): ReferralAdminSnapshot | null {
   const users = Array.isArray(row.referred_users)
     ? row.referred_users.map(parseReferredUser).filter((user): user is ReferredUser => user !== null)
     : [];
+  const commissionTotal = moneyNumber(row.commission_total);
   return {
     email,
     code,
-    commission_total: moneyNumber(row.commission_total),
+    commission_total: commissionTotal,
+    wallet_balance: row.wallet_balance == null ? commissionTotal : moneyNumber(row.wallet_balance),
     referred_users: users,
   };
 }

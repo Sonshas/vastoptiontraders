@@ -229,7 +229,7 @@ function createDemoSupabaseClient() {
     auth: demoAuth,
     from: () => emptyDemoQuery(),
     rpc: async (fnName: string, args?: Record<string, unknown>) => {
-      if (fnName === 'has_role') {
+      if (fnName === 'has_role' || fnName === 'can_open_referral_dashboard') {
         const session = readDemoSession();
         return { data: Boolean(session?.user), error: null };
       }

@@ -319,6 +319,7 @@ export type Database = {
           user_id: string
         }[]
       }
+      can_open_referral_dashboard: { Args: never; Returns: boolean }
       get_practice_account: { Args: never; Returns: number }
       get_referral_dashboard: {
         Args: { _code?: string }

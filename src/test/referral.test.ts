@@ -14,6 +14,7 @@ import {
 const migration = readFileSync('drizzle/migrations/0013_referral_system.sql', 'utf8');
 const adminRoles = readFileSync('drizzle/migrations/0012_additional_admin_roles.sql', 'utf8');
 const bookmzizaAdmin = readFileSync('drizzle/migrations/0014_bookmziza_admin_role.sql', 'utf8');
+const referrerWallets = readFileSync('drizzle/migrations/0015_referrer_wallets.sql', 'utf8');
 
 describe('referral links', () => {
   beforeEach(() => localStorage.clear());
@@ -55,6 +56,7 @@ describe('referral links', () => {
         email: 'admin@example.com',
         code: 'abc1234567',
         commission_total: '3.00',
+        wallet_balance: '3.00',
         referred_users: [{
           email: 'trader@example.com',
           joined_at: '2026-10-14T00:00:00.000Z',
@@ -65,7 +67,20 @@ describe('referral links', () => {
       },
     });
     expect(dashboard.admin?.commission_total).toBe(3);
+    expect(dashboard.admin?.wallet_balance).toBe(3);
     expect(dashboard.admin?.referred_users[0]?.email).toBe('trader@example.com');
+    const legacy = parseReferralDashboard({
+      scope: 'one',
+      is_super_admin: false,
+      own_code: 'abc1234567',
+      admin: {
+        email: 'admin@example.com',
+        code: 'abc1234567',
+        commission_total: 4,
+        referred_users: [],
+      },
+    });
+    expect(legacy.admin?.wallet_balance).toBe(4);
     expect(parseReferralDashboard({ scope: 'all', is_super_admin: true, own_code: null, admins: [] }).admins).toEqual([]);
     expect(() => parseReferralDashboard({ scope: 'one' })).toThrow(/could not be read/);
   });
@@ -98,5 +113,23 @@ describe('referral migration', () => {
     }
     expect(bookmzizaAdmin).not.toMatch(/is_super_admin/);
     expect(bookmzizaAdmin).toContain('ON CONFLICT (admin_id) DO NOTHING');
+  });
+
+  it('opens referral wallets for designated referrers without an admin role', () => {
+    expect(referrerWallets).toContain('cleverserugo@gmail.com');
+    expect(referrerWallets).toContain('gipsonotengo@gmail.com');
+    expect(referrerWallets).toContain('ON CONFLICT (admin_id) DO NOTHING');
+    expect(referrerWallets).toContain("'wallet_balance', wallet.balance");
+    expect(referrerWallets).toContain("'commission_total', wallet.balance");
+    expect(referrerWallets).toContain('round(sum(c.commission_amount), 2)');
+    expect(referrerWallets).not.toMatch(/INSERT INTO public\.user_roles/);
+    expect(referrerWallets).not.toMatch(/INSERT INTO public\.referral_commissions/);
+    expect(referrerWallets).not.toMatch(/FUNCTION public\.is_super_admin/);
+    const captureAt = referrerWallets.indexOf('FUNCTION public.capture_signup_referral');
+    const ensureAt = referrerWallets.indexOf('FUNCTION public.ensure_designated_referrer');
+    const capture = referrerWallets.slice(captureAt, ensureAt);
+    expect(capture).not.toContain('has_role');
+    expect(capture).toContain('ON CONFLICT (referred_user_id) DO NOTHING');
+    expect(capture).toContain("raw_code !~ '^[a-z0-9]{10}$'");
   });
 });
