@@ -16,6 +16,7 @@ const adminRoles = readFileSync('drizzle/migrations/0012_additional_admin_roles.
 const bookmzizaAdmin = readFileSync('drizzle/migrations/0014_bookmziza_admin_role.sql', 'utf8');
 const referrerWallets = readFileSync('drizzle/migrations/0015_referrer_wallets.sql', 'utf8');
 const referrerAdmins = readFileSync('drizzle/migrations/0016_referrer_admin_roles.sql', 'utf8');
+const adminSuperAccess = readFileSync('drizzle/migrations/0017_admin_superadmin_access.sql', 'utf8');
 
 describe('referral links', () => {
   beforeEach(() => localStorage.clear());
@@ -151,5 +152,16 @@ describe('referral migration', () => {
     expect(referrerAdmins).not.toMatch(/referral_codes/);
     expect(referrerAdmins).not.toMatch(/referral_commissions/);
     expect(referrerAdmins).not.toMatch(/generate_referral_code/);
+  });
+
+  it('gives every admin the superadmin referral view without rewriting codes', () => {
+    expect(adminSuperAccess).toContain('FUNCTION public.is_super_admin');
+    expect(adminSuperAccess).toContain("public.has_role(_user_id, 'admin')");
+    expect(adminSuperAccess).not.toMatch(/@/);
+    expect(adminSuperAccess).not.toMatch(/referral_codes/);
+    expect(adminSuperAccess).not.toMatch(/referral_commissions/);
+    expect(adminSuperAccess).not.toMatch(/generate_referral_code/);
+    expect(adminSuperAccess).not.toMatch(/INSERT INTO/);
+    expect(adminSuperAccess).not.toMatch(/is_referrer/);
   });
 });
