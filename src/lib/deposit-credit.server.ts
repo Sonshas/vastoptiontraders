@@ -1,4 +1,4 @@
-import { depositNote, depositNoteMatchesTransaction, canCreditDeposit, megapayIdFromNote, megaPayPaymentState } from '@/lib/deposit-credit';
+import { depositNote, depositNoteMatchesTransaction, megapayIdFromNote, referenceFromNote, resolveCreditDecision } from '@/lib/deposit-credit';
 import { depositUsdFromKes, getMegaPayConfig } from '@/lib/megapay';
 
 const STATUS_ENDPOINT = 'https://megapay.co.ke/backend/v1/transactionstatus';
@@ -23,6 +23,10 @@ async function admin() {
   return supabaseAdmin;
 }
 
+function paymentToken(value: string | undefined): string {
+  return value?.replace(/[^A-Za-z0-9]/g, '') ?? '';
+}
+
 async function providerStatus(transactionRequestId: string): Promise<unknown> {
   const config = getMegaPayConfig();
   if (!config.apiKey || !config.email) throw new Error('MegaPay is not configured.');
@@ -41,7 +45,7 @@ async function providerStatus(transactionRequestId: string): Promise<unknown> {
 
 export async function recordPendingMegaPayDeposit(input: {
   userId: string;
-  transactionRequestId: string;
+  transactionRequestId?: string;
   reference: string;
   amountKes: number;
   kesPerUsd: number;
@@ -59,9 +63,23 @@ export async function recordPendingMegaPayDeposit(input: {
   return { depositId: data.id, creditedUsd };
 }
 
+export async function attachMegaPayTransaction(depositId: string, input: {
+  transactionRequestId: string;
+  reference: string;
+  amountKes: number;
+  kesPerUsd: number;
+}): Promise<void> {
+  const { error } = await (await admin()).from('deposits').update({ note: depositNote(input) }).eq('id', depositId);
+  if (error) throw new Error(error.message);
+}
+
+export async function rejectUnsentMegaPayDeposit(depositId: string): Promise<void> {
+  await (await admin()).from('deposits').update({ status: 'rejected' }).eq('id', depositId).eq('status', 'pending');
+}
+
 async function findDeposit(transactionRequestId: string, reference: string | undefined, userId: string | undefined): Promise<DepositRow | null> {
-  const safeId = transactionRequestId.replace(/[^A-Za-z0-9]/g, '');
-  const safeRef = reference?.replace(/[^A-Za-z0-9]/g, '') ?? '';
+  const safeId = paymentToken(transactionRequestId);
+  const safeRef = paymentToken(reference);
   const db = await admin();
   const filters = [safeId ? `%${safeId}%` : '', safeRef ? `%ref=${safeRef}%` : ''].filter(Boolean);
   for (const pattern of filters) {
@@ -69,10 +87,12 @@ async function findDeposit(transactionRequestId: string, reference: string | und
     if (userId) query = query.eq('user_id', userId);
     const { data, error } = await query;
     if (error) throw new Error(error.message);
-    const match = (data ?? []).find(row => (
-      (safeId && depositNoteMatchesTransaction(row.note, safeId))
-      || (safeRef && row.note?.includes(`ref=${safeRef}`))
-    ));
+    const match = (data ?? []).find(row => {
+      const idMatch = Boolean(safeId && depositNoteMatchesTransaction(row.note, safeId));
+      const refMatch = Boolean(safeRef && (row.note?.includes(`ref=${safeRef}`) || referenceFromNote(row.note) === safeRef));
+      if (pattern.includes('ref=')) return refMatch;
+      return idMatch || refMatch;
+    });
     if (match) return match;
   }
   return null;
@@ -82,9 +102,10 @@ export async function creditMegaPayDeposit(input: {
   transactionRequestId?: string;
   reference?: string;
   userId?: string;
+  providerResult?: unknown;
 }): Promise<DepositCreditResult> {
-  const requestedId = input.transactionRequestId?.replace(/[^A-Za-z0-9]/g, '') ?? '';
-  const reference = input.reference?.replace(/[^A-Za-z0-9]/g, '') ?? '';
+  const requestedId = paymentToken(input.transactionRequestId);
+  const reference = paymentToken(input.reference);
   if (!requestedId && !reference) return { ok: false, status: 'invalid', message: 'Missing MegaPay transaction id.' };
 
   let row: DepositRow | null;
@@ -96,26 +117,72 @@ export async function creditMegaPayDeposit(input: {
   if (!row) return { ok: false, status: 'not_found', message: 'Deposit record was not found.' };
   const amountUsd = Number(row.amount);
   if (row.status === 'completed') return { ok: true, status: 'completed', amountUsd };
-  if (row.status === 'rejected') return { ok: false, status: 'failed', amountUsd, message: 'The M-Pesa payment was not completed.' };
 
-  const transactionRequestId = megapayIdFromNote(row.note) || requestedId;
-  if (!transactionRequestId) return { ok: false, status: 'invalid', message: 'Missing MegaPay transaction id.' };
+  const storedId = paymentToken(megapayIdFromNote(row.note) ?? '');
+  const storedRef = paymentToken(referenceFromNote(row.note) ?? '');
+  const transactionRequestId = storedId || requestedId;
+  const referenceMatches = Boolean(reference && storedRef && reference === storedRef);
+  const callbackMatches = referenceMatches || !requestedId || !storedId || storedId === requestedId;
+  const provided = callbackMatches ? input.providerResult : undefined;
 
-  let providerResult: unknown;
-  try {
-    providerResult = await providerStatus(transactionRequestId);
-  } catch (error) {
-    return { ok: false, status: 'unavailable', message: error instanceof Error ? error.message : 'MegaPay status could not be checked.' };
+  let fetched: unknown = null;
+  if (transactionRequestId) {
+    try {
+      fetched = await providerStatus(transactionRequestId);
+    } catch (error) {
+      if (!provided) {
+        return { ok: false, status: 'unavailable', message: error instanceof Error ? error.message : 'MegaPay status could not be checked.' };
+      }
+    }
+  } else if (!provided) {
+    return { ok: true, status: 'pending', amountUsd };
   }
 
-  const state = megaPayPaymentState(providerResult);
-  if (state === 'failed') {
-    await (await admin()).from('deposits').update({ status: 'rejected' }).eq('id', row.id).eq('status', 'pending');
+  const decision = resolveCreditDecision(row.note, provided, fetched);
+  if (decision === 'failed') {
+    if (row.status === 'pending') {
+      await (await admin()).from('deposits').update({ status: 'rejected' }).eq('id', row.id).eq('status', 'pending');
+    }
     return { ok: false, status: 'failed', amountUsd, message: 'The M-Pesa payment was not completed.' };
   }
-  if (!canCreditDeposit(row.note, providerResult)) return { ok: true, status: 'pending', amountUsd };
+  if (decision !== 'completed') {
+    if (row.status === 'rejected') return { ok: false, status: 'failed', amountUsd, message: 'The M-Pesa payment was not completed.' };
+    return { ok: true, status: 'pending', amountUsd };
+  }
 
-  const { data: updated, error } = await (await admin()).from('deposits').update({ status: 'completed' }).eq('id', row.id).eq('status', 'pending').select('amount').maybeSingle();
+  const { data: updated, error } = await (await admin()).from('deposits').update({ status: 'completed' }).eq('id', row.id).in('status', ['pending', 'rejected']).select('amount').maybeSingle();
   if (error) return { ok: false, status: 'unavailable', amountUsd, message: 'The payment was received but the balance could not be updated.' };
-  return { ok: true, status: 'completed', amountUsd: Number(updated?.amount ?? row.amount) };
+  if (updated) return { ok: true, status: 'completed', amountUsd: Number(updated.amount) };
+
+  const { data: current } = await (await admin()).from('deposits').select('status, amount').eq('id', row.id).maybeSingle();
+  if (current?.status === 'completed') return { ok: true, status: 'completed', amountUsd: Number(current.amount) };
+  return { ok: true, status: 'pending', amountUsd };
+}
+
+let pendingSync: Promise<void> | undefined;
+
+export function syncPendingMegaPayDeposits(): Promise<void> {
+  if (pendingSync) return pendingSync;
+  pendingSync = syncPendingMegaPayDepositsOnce().finally(() => { pendingSync = undefined; });
+  return pendingSync;
+}
+
+async function syncPendingMegaPayDepositsOnce(): Promise<void> {
+  const { data, error } = await (await admin()).from('deposits')
+    .select('id, note')
+    .eq('status', 'pending')
+    .eq('method', 'MegaPay M-Pesa')
+    .order('created_at', { ascending: true })
+    .limit(25);
+  if (error || !data?.length) return;
+  for (const row of data) {
+    const transactionRequestId = megapayIdFromNote(row.note) ?? '';
+    const reference = referenceFromNote(row.note) ?? '';
+    if (!transactionRequestId && !reference) continue;
+    try {
+      await creditMegaPayDeposit({ transactionRequestId, reference });
+    } catch {
+      /* Leave the row pending until MegaPay confirms it. */
+    }
+  }
 }

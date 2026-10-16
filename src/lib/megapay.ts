@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { requireSupabaseAuth } from '@/integrations/supabase/auth-middleware';
+import { megaPayDepositReference } from '@/lib/deposit-credit';
 
 const STK_ENDPOINT = 'https://megapay.co.ke/backend/v1/initiatestk';
 export const MEGAPAY_MIN_DEPOSIT_KES = 1600;
@@ -124,11 +125,23 @@ export const submitMegaPayStk = createServerFn({ method: 'POST' })
       return { ok: false, status: 'missing_exchange_rate', message: 'Set a valid VITE_MEGAPAY_KES_PER_USD fixed exchange rate.' };
     }
 
+    const reference = megaPayDepositReference(data.reference);
     let payload: ReturnType<typeof buildMegaPayStkRequest>;
     try {
-      payload = buildMegaPayStkRequest({ ...data, ...config });
+      payload = buildMegaPayStkRequest({ ...data, reference, ...config });
     } catch (error) {
       return { ok: false, status: 'invalid_request', message: error instanceof Error ? error.message : 'Invalid deposit request.' };
+    }
+
+    const { recordPendingMegaPayDeposit, attachMegaPayTransaction, rejectUnsentMegaPayDeposit } = await import('@/lib/deposit-credit.server');
+    const recorded = await recordPendingMegaPayDeposit({
+      userId: String(context.userId ?? ''),
+      reference,
+      amountKes: payload.amount,
+      kesPerUsd: config.kesPerUsd,
+    });
+    if (!recorded.depositId) {
+      return { ok: false, status: 'not_recorded', message: recorded.error || 'The deposit could not be recorded.' };
     }
 
     try {
@@ -141,36 +154,36 @@ export const submitMegaPayStk = createServerFn({ method: 'POST' })
       let result: unknown = null;
       try { result = bodyText ? JSON.parse(bodyText) : null; } catch { result = null; }
 
-      if (!response.ok) {
-        return { ok: false, status: response.status, message: providerMessage(result, bodyText || 'MegaPay STK request failed.') };
-      }
-
       const transactionRequestId = typeof result === 'object' && result && 'transaction_request_id' in result
         ? String((result as { transaction_request_id?: string }).transaction_request_id ?? '')
         : '';
       const success = typeof result === 'object' && result && 'success' in result
         ? String((result as { success?: string | number }).success)
         : '';
-      if (success !== '200' || !transactionRequestId) {
-        return { ok: false, status: 'provider_error', message: providerMessage(result, 'MegaPay did not confirm that the STK request was accepted.') };
+      if (!response.ok || success !== '200' || !transactionRequestId) {
+        await rejectUnsentMegaPayDeposit(recorded.depositId);
+        return {
+          ok: false,
+          status: response.ok ? 'provider_error' : response.status,
+          message: providerMessage(result, bodyText || 'MegaPay did not confirm that the STK request was accepted.'),
+        };
       }
 
-      const { recordPendingMegaPayDeposit } = await import('@/lib/deposit-credit.server');
-      const recorded = await recordPendingMegaPayDeposit({
-        userId: String(context.userId ?? ''),
-        transactionRequestId,
-        reference: data.reference,
-        amountKes: payload.amount,
-        kesPerUsd: config.kesPerUsd,
-      });
-      if (!recorded.depositId) {
-        return { ok: false, status: 'not_recorded', message: recorded.error || 'MegaPay sent the prompt, but the deposit could not be recorded.' };
+      try {
+        await attachMegaPayTransaction(recorded.depositId, {
+          transactionRequestId,
+          reference,
+          amountKes: payload.amount,
+          kesPerUsd: config.kesPerUsd,
+        });
+      } catch {
+        /* The pending row still matches the MegaPay reference if the id note could not be saved. */
       }
 
       return {
         ok: true,
         status: response.status,
-        reference: data.reference,
+        reference,
         transactionRequestId,
         depositId: recorded.depositId,
         amountKes: payload.amount,

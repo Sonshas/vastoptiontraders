@@ -6,6 +6,9 @@ export const Route = createFileRoute('/api/health')({
       GET: async () => {
         try {
           const { supabaseAdmin } = await import('@/integrations/supabase/client.server');
+          void import('@/lib/deposit-credit.server')
+            .then(module => module.syncPendingMegaPayDeposits())
+            .catch(() => undefined);
           const { error } = await supabaseAdmin.from('site_settings').select('key').limit(1);
           if (error) throw error;
           return Response.json({ status: 'ok' }, { headers: { 'Cache-Control': 'no-store' } });
