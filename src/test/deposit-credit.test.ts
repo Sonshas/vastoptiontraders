@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canCreditDeposit, depositNote, depositNoteMatchesTransaction, kesFromNote, megaPayCallbackFields, megaPayDepositReference, megaPayPaymentState, megapayIdFromNote, resolveCreditDecision } from '@/lib/deposit-credit';
+import { canCreditDeposit, depositNote, depositNoteMatchesTransaction, kesFromNote, megaPayCallbackFields, megaPayDepositReference, megaPayPaymentState, megaPayTransactionRequestId, megapayIdFromNote, resolveCreditDecision } from '@/lib/deposit-credit';
 
 describe('MegaPay deposit crediting', () => {
   const note = depositNote({ transactionRequestId: 'SOFTPID1600', reference: '171000', amountKes: 1600, kesPerUsd: 129 });
@@ -39,6 +39,8 @@ describe('MegaPay deposit crediting', () => {
     expect(resolveCreditDecision(note, webhookPaid, { ResponseCode: 1032 })).toBe('failed');
     expect(resolveCreditDecision(note, { success: '200' }, ambiguous)).toBe('pending');
     expect(megaPayCallbackFields(webhookPaid)).toEqual({ transactionRequestId: 'SOFTPID1600', reference: '171000' });
+    expect(megaPayTransactionRequestId({ success: '200', data: { transaction_request_id: 'SOFTPID1600' } })).toBe('SOFTPID1600');
+    expect(megaPayCallbackFields({ data: { TransactionID: 'SOFTPID1600', TransactionReference: '171000' } })).toEqual({ transactionRequestId: 'SOFTPID1600', reference: '171000' });
   });
 
   it('finds the MegaPay id on new and older deposit notes', () => {

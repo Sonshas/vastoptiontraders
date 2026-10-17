@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useSession } from '@/components/session-context';
-import { clearReferralCode, readReferralCode, signupOptions } from '@/lib/referral';
+import { clearReferralCode, normalizeReferralCode, readReferralCode, rememberReferralCode, signupOptions } from '@/lib/referral';
 
 export type AuthMode = 'login' | 'signup' | 'forgot';
-export function AuthForm({ mode }: { mode: AuthMode }) {
+export function AuthForm({ mode, referralCode: referralFromLink }: { mode: AuthMode; referralCode?: string | undefined }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [visible, setVisible] = useState(false);
@@ -25,7 +25,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
         if (result.error) throw result.error;
         setMessage('If an account exists for this email, you’ll receive a password reset link shortly.');
       } else if (mode === 'signup') {
-        const referralCode = readReferralCode();
+        const referralCode = normalizeReferralCode(referralFromLink) ?? rememberReferralCode(referralFromLink) ?? readReferralCode();
         const result = await supabase.auth.signUp({ email, password, options: signupOptions(window.location.origin, referralCode) });
         if (result.error) throw result.error;
         if (referralCode) clearReferralCode();

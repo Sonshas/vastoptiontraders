@@ -154,18 +154,29 @@ export const submitMegaPayStk = createServerFn({ method: 'POST' })
       let result: unknown = null;
       try { result = bodyText ? JSON.parse(bodyText) : null; } catch { result = null; }
 
-      const transactionRequestId = typeof result === 'object' && result && 'transaction_request_id' in result
-        ? String((result as { transaction_request_id?: string }).transaction_request_id ?? '')
-        : '';
+      const { megaPayTransactionRequestId } = await import('@/lib/deposit-credit');
+      const transactionRequestId = megaPayTransactionRequestId(result);
       const success = typeof result === 'object' && result && 'success' in result
         ? String((result as { success?: string | number }).success)
         : '';
-      if (!response.ok || success !== '200' || !transactionRequestId) {
+      if (!response.ok || (success !== '200' && !transactionRequestId)) {
         await rejectUnsentMegaPayDeposit(recorded.depositId);
         return {
           ok: false,
           status: response.ok ? 'provider_error' : response.status,
           message: providerMessage(result, bodyText || 'MegaPay did not confirm that the STK request was accepted.'),
+        };
+      }
+      if (!transactionRequestId) {
+        return {
+          ok: true,
+          status: 'accepted',
+          reference,
+          transactionRequestId: '',
+          depositId: recorded.depositId,
+          amountKes: payload.amount,
+          kesPerUsd: config.kesPerUsd,
+          creditedUsd: recorded.creditedUsd,
         };
       }
 

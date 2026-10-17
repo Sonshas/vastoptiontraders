@@ -58,11 +58,31 @@ export function megaPayPaidKes(result: unknown): number {
   return Number.isFinite(paid) ? Math.round(paid) : Number.NaN;
 }
 
+function nestedRecords(record: Record<string, unknown>): Record<string, unknown>[] {
+  return NESTED_KEYS.flatMap(key => {
+    const nested = readField(record, [key]);
+    return nested && typeof nested === 'object' && !Array.isArray(nested) ? [nested as Record<string, unknown>] : [];
+  });
+}
+
+/** MegaPay sometimes nests the STK id under data or transaction. */
+export function megaPayTransactionRequestId(result: unknown): string {
+  const record = asMegaPayRecord(result);
+  const direct = readField(record, ['transaction_request_id', 'TransactionID', 'transactionId']);
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  if (typeof direct === 'number' && Number.isFinite(direct)) return String(direct);
+  for (const nested of nestedRecords(record)) {
+    const found = megaPayTransactionRequestId(nested);
+    if (found) return found;
+  }
+  return '';
+}
+
 export function megaPayCallbackFields(body: unknown): { transactionRequestId: string; reference: string } {
-  const record = asMegaPayRecord(body);
+  const record = normalizeMegaPayResult(body);
   return {
-    transactionRequestId: String(record.transaction_request_id ?? record.TransactionID ?? '').trim(),
-    reference: String(record.TransactionReference ?? record.reference ?? '').trim(),
+    transactionRequestId: megaPayTransactionRequestId(record),
+    reference: String(readField(record, ['TransactionReference', 'reference']) ?? '').trim(),
   };
 }
 

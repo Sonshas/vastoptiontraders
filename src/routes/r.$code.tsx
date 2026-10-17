@@ -15,6 +15,7 @@ function ReferralLinkPage() {
   const { code } = Route.useParams();
   const { user, loading } = useSession();
   const navigate = useNavigate();
+  const referralCode = rememberReferralCode(code) ?? undefined;
 
   useEffect(() => {
     if (loading) return;
@@ -22,7 +23,7 @@ function ReferralLinkPage() {
     async function continueFromLink() {
       if (!user) {
         rememberReferralCode(code);
-        await navigate({ to: '/auth', search: { mode: 'signup' }, replace: true });
+        await navigate({ to: '/auth', search: referralCode ? { mode: 'signup', ref: referralCode } : { mode: 'signup' }, replace: true });
         return;
       }
       const normalized = normalizeReferralCode(code);
@@ -57,7 +58,7 @@ function ReferralLinkPage() {
 
     void continueFromLink();
     return () => { cancelled = true; };
-  }, [code, loading, navigate, user]);
+  }, [code, loading, navigate, referralCode, user]);
 
   return (
     <>
@@ -68,7 +69,7 @@ function ReferralLinkPage() {
           <h1>Opening your referral link</h1>
           <p role="status">Taking you to the next step.</p>
           <p>
-            <Link to="/auth" search={{ mode: 'signup' }}>Continue to create an account</Link>
+            <Link to="/auth" search={referralCode ? { mode: 'signup', ref: referralCode } : { mode: 'signup' }}>Continue to create an account</Link>
           </p>
         </div>
       </main>
