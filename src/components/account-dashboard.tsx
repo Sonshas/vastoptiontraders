@@ -12,7 +12,7 @@ import { calculateCompletedDeposits, calculateCompletedWithdrawals, calculateNet
 import { loadAvailableRealBalance } from '@/lib/real-balance';
 import { megapayIdFromNote } from '@/lib/deposit-credit';
 import { MEGAPAY_MIN_DEPOSIT_KES, depositMeetsMinimum, depositUsdFromKes, minimumDepositMessage, parseDepositKes, readMegaPayKesPerUsd, submitMegaPayStk, syncMegaPayDeposit } from '@/lib/megapay';
-import { getWithdrawalTaxState } from '@/lib/withdrawal-tax';
+import { ReferralWalletPanel } from '@/components/referral-dashboard';
 import { useServerFn } from '@tanstack/react-start';
 
 const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -195,6 +195,7 @@ export function AccountDashboard() {
 
   return <main className="account-page container-wide">
     <div className="account-heading"><div><p className="section-kicker">YOUR TRADING ACCOUNTS</p><h1>Balance dashboard</h1></div><span className="account-currency">Account currency <strong>USD</strong></span></div>
+    <ReferralWalletPanel />
     <div className="account-switch" role="tablist" aria-label="Account type">
       <Button variant="ghost" role="tab" aria-selected={selected === 'demo'} aria-controls="account-panel" id="demo-tab" className={selected === 'demo' ? 'selected' : ''} onClick={() => { setSelected('demo'); setConfirmReset(false); }}><FlaskConical /> Practice account <span className="account-tag">Virtual</span></Button>
       <Button variant="ghost" role="tab" aria-selected={selected === 'real'} aria-controls="account-panel" id="real-tab" className={selected === 'real' ? 'selected' : ''} onClick={() => { setSelected('real'); setConfirmReset(false); }}><img src="/usa-flag.svg" alt="USA flag" className="account-flag" /> Real account <span className="account-tag">USD</span></Button>

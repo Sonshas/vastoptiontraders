@@ -5,6 +5,7 @@ const REFERRAL_CODE_PATTERN = /^[a-z0-9]{10}$/;
 export type ReferralDeposit = {
   amount: number;
   completed_at: string;
+  status: string;
   commission: number | null;
 };
 
@@ -126,6 +127,7 @@ type LooseRecord = {
   code?: unknown;
   commission?: unknown;
   commission_total?: unknown;
+  status?: unknown;
   completed_at?: unknown;
   wallet_balance?: unknown;
   completed_deposits?: unknown;
@@ -151,6 +153,7 @@ function parseDeposit(value: unknown): ReferralDeposit | null {
   return {
     amount: moneyNumber(row.amount),
     completed_at: completedAt,
+    status: textValue(row.status) || 'completed',
     commission: optionalMoney(row.commission),
   };
 }

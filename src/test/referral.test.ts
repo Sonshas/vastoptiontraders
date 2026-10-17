@@ -78,13 +78,18 @@ describe('referral links', () => {
           joined_at: '2026-10-14T00:00:00.000Z',
           deposit_total: 10,
           commission_total: 3,
-          completed_deposits: [{ amount: 10, completed_at: '2026-10-14T01:00:00.000Z', commission: 3 }],
+          completed_deposits: [
+            { amount: 10, completed_at: '2026-10-14T01:00:00.000Z', commission: 3 },
+            { amount: 12.4, completed_at: '2026-10-16T13:25:00.000Z', status: 'rejected', commission: null },
+          ],
         }],
       },
     });
     expect(dashboard.admin?.commission_total).toBe(3);
     expect(dashboard.admin?.wallet_balance).toBe(3);
     expect(dashboard.admin?.referred_users[0]?.email).toBe('trader@example.com');
+    expect(dashboard.admin?.referred_users[0]?.completed_deposits[0]?.status).toBe('completed');
+    expect(dashboard.admin?.referred_users[0]?.completed_deposits[1]?.status).toBe('rejected');
     const legacy = parseReferralDashboard({
       scope: 'one',
       is_super_admin: false,

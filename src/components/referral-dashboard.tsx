@@ -49,6 +49,13 @@ function ReferralLinkField({ code }: { code: string }) {
   );
 }
 
+function depositCreditText(deposit: { status: string; commission: number | null }): string {
+  if (deposit.commission != null) return `${formatReferralUsd(deposit.commission)} USD credited to the referral wallet`;
+  if (deposit.status === 'completed') return 'No referral credit recorded';
+  if (deposit.status === 'pending') return '30% is credited when this deposit completes';
+  return 'Not credited';
+}
+
 function ReferredUsers({ admin }: { admin: ReferralAdminSnapshot }) {
   if (!admin.referred_users.length) {
     return <p className="text-sm text-muted-foreground">No one has joined through this link yet.</p>;
@@ -67,12 +74,12 @@ function ReferredUsers({ admin }: { admin: ReferralAdminSnapshot }) {
           {user.completed_deposits.length ? (
             <ul className="mt-3 space-y-2 text-sm">
               {user.completed_deposits.map((deposit, index) => (
-                <li key={`${deposit.completed_at}-${deposit.amount}-${index}`}>
-                  {new Date(deposit.completed_at).toLocaleString()} · {formatReferralUsd(deposit.amount)} USD deposit · {deposit.commission == null ? 'No referral credit recorded' : `${formatReferralUsd(deposit.commission)} USD credited to the referral wallet`}
+                <li key={`${deposit.completed_at}-${deposit.amount}-${deposit.status}-${index}`}>
+                  {new Date(deposit.completed_at).toLocaleString()} · {formatReferralUsd(deposit.amount)} USD · {deposit.status} · {depositCreditText(deposit)}
                 </li>
               ))}
             </ul>
-          ) : <p className="mt-3 text-sm text-muted-foreground">No completed deposits yet.</p>}
+          ) : <p className="mt-3 text-sm text-muted-foreground">No deposits yet.</p>}
         </article>
       ))}
     </div>
@@ -134,19 +141,37 @@ function DashboardBody({ data }: { data: ReferralDashboard }) {
   );
 }
 
-export function ReferralDashboard({ code }: { code?: string | undefined }) {
-  const access = useCanOpenReferralDashboard();
+function useReferralDashboard(code: string | undefined, enabled: boolean) {
   const { user } = useSession();
-  const navigate = useNavigate();
-  const dashboard = useQuery({
+  return useQuery({
     queryKey: ['referral-dashboard', user?.id, code ?? ''],
-    enabled: access.data === true,
+    enabled,
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_referral_dashboard', { _code: code ?? '' });
       if (error) throw error;
       return parseReferralDashboard(data);
     },
   });
+}
+
+export function ReferralWalletPanel() {
+  const access = useCanOpenReferralDashboard();
+  const dashboard = useReferralDashboard(undefined, access.data === true);
+  if (!access.data) return null;
+  return (
+    <section className="account-activity" aria-label="Referral wallet">
+      <div className="account-section-heading"><h2>Referral wallet</h2><span>Joined users, deposits, and 30% credits</span></div>
+      {dashboard.isPending ? <p role="status">Loading referral wallet…</p> : null}
+      {dashboard.error ? <p role="alert">{referralErrorMessage(dashboard.error)}</p> : null}
+      {dashboard.data ? <DashboardBody data={dashboard.data} /> : null}
+    </section>
+  );
+}
+
+export function ReferralDashboard({ code }: { code?: string | undefined }) {
+  const access = useCanOpenReferralDashboard();
+  const navigate = useNavigate();
+  const dashboard = useReferralDashboard(code, access.data === true);
   const deniedForeignCode = Boolean(code) && dashboard.error != null && referralAccessDenied(dashboard.error);
 
   useEffect(() => {
@@ -166,7 +191,7 @@ export function ReferralDashboard({ code }: { code?: string | undefined }) {
       <p className="section-kicker">REFERRALS</p>
       <h1 className="text-3xl font-bold">Referral dashboard</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        The referral wallet equals the 30% credited from completed USD deposits. When someone joins through your link and a deposit is completed, 30% of that amount, rounded to cents, is credited once. Pending and rejected deposits pay nothing. This wallet is separate from trading balances and is not a withdrawal.
+        The referral wallet equals the 30% credited from completed USD deposits. Every person who joined through a link is listed with each deposit. Pending and rejected deposits are shown, and 30% is credited once the deposit is completed. This wallet is separate from trading balances and is not a withdrawal.
       </p>
     </header>
     {dashboard.isPending ? <p role="status">Loading referral dashboard…</p> : null}
