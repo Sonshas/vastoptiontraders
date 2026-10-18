@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMegaPayStkRequest, depositUsdFromKes, minimumDepositMessage, normalizeMegaPayPhoneNumber, parseDepositKes, resolveMegaPayKesPerUsd } from '@/lib/megapay';
+import { buildMegaPayStkRequest, depositUsdFromKes, minimumDepositMessage, normalizeMegaPayPhoneNumber, parseDepositKes, readMegaPayApiKey, readMegaPayCredential, resolveMegaPayKesPerUsd } from '@/lib/megapay';
 
 describe('MegaPay STK request', () => {
   it('normalizes Kenyan phone numbers for MegaPay', () => {
@@ -49,6 +49,12 @@ describe('MegaPay STK request', () => {
     expect(buildMegaPayStkRequest({ ...request, amountKes: '1,600' }).amount).toBe(1600);
     expect(buildMegaPayStkRequest({ ...request, amountKes: '5,000' }).amount).toBe(5000);
     expect(() => buildMegaPayStkRequest({ ...request, amountKes: 5000, kesPerUsd: 0 })).toThrow('Set a valid VITE_MEGAPAY_KES_PER_USD exchange rate.');
+  });
+
+  it('removes quotes, spaces, and Windows line endings from MegaPay credentials', () => {
+    expect(readMegaPayApiKey(' "abc def" \r\n')).toBe('abcdef');
+    expect(readMegaPayApiKey("api_key='nluhfjdgbmzfyjrwzsbqkwcsijb'\r")).toBe('nluhfjdgbmzfyjrwzsbqkwcsijb');
+    expect(readMegaPayCredential(' "Merchant@Example.com" \r')).toBe('Merchant@Example.com');
   });
 
   it('prefers the baked exchange rate and falls back to the runtime value', () => {

@@ -59,10 +59,24 @@ export function depositUsdFromKes(amountKes: number, kesPerUsd: number): number 
   return Math.round((amountKes / kesPerUsd) * 100) / 100;
 }
 
+/** Docker keeps wrapping quotes, and a Windows env file leaves a trailing CR on the value. */
+export function readMegaPayCredential(value: string | undefined): string {
+  let text = (value ?? '').replace(/[\uFEFF\u200B\u200C\u200D]/g, '').replace(/\r/g, '').trim();
+  text = text.replace(/^api[_ ]?key\s*[:=]\s*/i, '').trim();
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    text = text.slice(1, -1).trim();
+  }
+  return text;
+}
+
+export function readMegaPayApiKey(value: string | undefined): string {
+  return readMegaPayCredential(value).replace(/\s+/g, '');
+}
+
 export function getMegaPayConfig() {
   return {
-    apiKey: process.env['MEGAPAY_API_KEY'] ?? '',
-    email: process.env['MEGAPAY_EMAIL'] ?? '',
+    apiKey: readMegaPayApiKey(process.env['MEGAPAY_API_KEY']),
+    email: readMegaPayCredential(process.env['MEGAPAY_EMAIL']),
     kesPerUsd: readMegaPayKesPerUsd(),
     endpoint: process.env['MEGAPAY_STK_URL'] ?? STK_ENDPOINT,
   };
@@ -148,7 +162,7 @@ export const submitMegaPayStk = createServerFn({ method: 'POST' })
       const response = await fetch(config.endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, amount: String(payload.amount) }),
       });
       const bodyText = await response.text();
       let result: unknown = null;
