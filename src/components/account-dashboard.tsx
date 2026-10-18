@@ -13,6 +13,7 @@ import { loadAvailableRealBalance } from '@/lib/real-balance';
 import { kesFromNote, megapayIdFromNote } from '@/lib/deposit-credit';
 import { MEGAPAY_MIN_DEPOSIT_KES, depositMeetsMinimum, depositUsdFromKes, minimumDepositMessage, parseDepositKes, readMegaPayKesPerUsd, submitMegaPayStk, syncMegaPayDeposit } from '@/lib/megapay';
 import { ReferralWalletPanel } from '@/components/referral-dashboard';
+import { getWithdrawalTaxState } from '@/lib/withdrawal-tax';
 import { useServerFn } from '@tanstack/react-start';
 
 const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
