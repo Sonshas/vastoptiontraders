@@ -82,35 +82,6 @@ export function getMegaPayConfig() {
   };
 }
 
-function credentialShape(value: string) {
-  return { length: value.length, hasAt: value.includes('@'), alnum: /^[A-Za-z0-9]+$/.test(value) };
-}
-
-async function megaPayStatusMessage(apiKey: string, email: string): Promise<string> {
-  const response = await fetch('https://megapay.co.ke/backend/v1/transactionstatus', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ api_key: apiKey, email, transaction_request_id: 'SOFTPID-not-a-real-id' }),
-  });
-  const text = await response.text();
-  let parsed: unknown = null;
-  try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
-  if (!parsed || typeof parsed !== 'object') return 'unparsed';
-  const record = parsed as { errorMessage?: unknown; ResultDesc?: unknown; massage?: unknown; message?: unknown; ResultCode?: unknown };
-  const message = record.errorMessage ?? record.ResultDesc ?? record.massage ?? record.message ?? record.ResultCode ?? 'no-message';
-  return String(message).slice(0, 160);
-}
-
-/** Safe check: lengths and MegaPay's own message, never the key or email. */
-export async function describeMegaPayCredentials(): Promise<{ key: ReturnType<typeof credentialShape>; email: ReturnType<typeof credentialShape>; normal: string; swapped: string }> {
-  const config = getMegaPayConfig();
-  const [normal, swapped] = await Promise.all([
-    megaPayStatusMessage(config.apiKey, config.email),
-    megaPayStatusMessage(config.email, config.apiKey),
-  ]);
-  return { key: credentialShape(config.apiKey), email: credentialShape(config.email), normal, swapped };
-}
-
 export function normalizeMegaPayPhoneNumber(phoneNumber: string): string {
   const digits = phoneNumber.replace(/\D+/g, '');
   if (digits.startsWith('254')) return digits;
