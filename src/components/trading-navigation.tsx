@@ -37,8 +37,8 @@ export function TradingNavigation() {
     <Dialog open={open} onOpenChange={setOpen}><DialogContent className="trading-menu">
       <DialogTitle>Menu</DialogTitle><DialogDescription>Option Market Traders · Demo account</DialogDescription>
       <div className="trading-menu-links">
-        <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/dashboard"><ArrowDownToLine /> Deposit <ArrowUpRight /></Link></Button>
-        <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/dashboard"><ArrowUpFromLine /> Withdraw <ArrowUpRight /></Link></Button>
+        <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/dashboard" search={{ action: 'deposit' }}><ArrowDownToLine /> Deposit <ArrowUpRight /></Link></Button>
+        <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/dashboard" search={{ action: 'withdraw' }}><ArrowUpFromLine /> Withdraw <ArrowUpRight /></Link></Button>
         <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/dashboard"><Wallet /> Accounts <ArrowUpRight /></Link></Button>
         <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/positions"><Clock3 /> Trade history <ArrowUpRight /></Link></Button>
         <Button asChild variant="ghost" onClick={() => setOpen(false)}><Link to="/"><House /> Welcome page <ArrowUpRight /></Link></Button>

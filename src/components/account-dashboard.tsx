@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownToLine, ArrowUpFromLine, ArrowUpRight, FlaskConical, RotateCcw, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
@@ -25,8 +25,9 @@ function usdWithKes(usd: number, kes: number | null): string {
   return `${usd < 0 ? '-' : ''}${dollars} (${kesLabel(kes)})`;
 }
 
-export function AccountDashboard() {
+export function AccountDashboard({ initialAction }: { initialAction?: 'deposit' | 'withdraw' }) {
   const { user } = useSession();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const submitMegaPayRequest = useServerFn(submitMegaPayStk);
   const syncDeposit = useServerFn(syncMegaPayDeposit);
@@ -214,9 +215,12 @@ export function AccountDashboard() {
     setTaxAcknowledged(false);
   }
 
+  useEffect(() => {
+    if (initialAction === 'deposit' || initialAction === 'withdraw') openFundsDialog(initialAction);
+  }, [initialAction]);
+
   return <main className="account-page container-wide">
     <div className="account-heading"><div><p className="section-kicker">YOUR TRADING ACCOUNTS</p><h1>Balance dashboard</h1></div><span className="account-currency">Account currency <strong>USD</strong></span></div>
-    <ReferralWalletPanel />
     <div className="account-switch" role="tablist" aria-label="Account type">
       <Button variant="ghost" role="tab" aria-selected={selected === 'demo'} aria-controls="account-panel" id="demo-tab" className={selected === 'demo' ? 'selected' : ''} onClick={() => { setSelected('demo'); setConfirmReset(false); }}><FlaskConical /> Practice account <span className="account-tag">Virtual</span></Button>
       <Button variant="ghost" role="tab" aria-selected={selected === 'real'} aria-controls="account-panel" id="real-tab" className={selected === 'real' ? 'selected' : ''} onClick={() => { setSelected('real'); setConfirmReset(false); }}><img src="/usa-flag.svg" alt="USA flag" className="account-flag" /> Real account <span className="account-tag">USD</span></Button>
@@ -235,7 +239,8 @@ export function AccountDashboard() {
         <p className="account-footnote">Demo funds have no cash value and cannot be withdrawn.</p>
       </>}
     </section>
-    <Dialog open={fundsDialog !== null} onOpenChange={open => { if (!open) { setFundsDialog(null); setAmount(''); setPhoneNumber(''); setTaxAcknowledged(false); } }}>
+    <ReferralWalletPanel />
+    <Dialog open={fundsDialog !== null} onOpenChange={open => { if (!open) { setFundsDialog(null); setAmount(''); setPhoneNumber(''); setTaxAcknowledged(false); if (initialAction) void navigate({ to: '/dashboard', search: {}, replace: true }); } }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{fundsDialog === 'deposit' ? 'Deposit to Real account' : 'Withdraw from Real account'}</DialogTitle>

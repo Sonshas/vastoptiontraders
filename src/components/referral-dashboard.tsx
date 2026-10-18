@@ -159,7 +159,7 @@ export function ReferralWalletPanel() {
   const dashboard = useReferralDashboard(undefined, access.data === true);
   if (!access.data) return null;
   return (
-    <section className="account-activity" aria-label="Referral wallet">
+    <section className="account-activity mt-10" aria-label="Referral wallet">
       <div className="account-section-heading"><h2>Referral wallet</h2><span>Joined users, deposits, and 40% credits</span></div>
       {dashboard.isPending ? <p role="status">Loading referral wallet…</p> : null}
       {dashboard.error ? <p role="alert">{referralErrorMessage(dashboard.error)}</p> : null}
