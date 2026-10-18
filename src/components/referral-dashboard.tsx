@@ -52,7 +52,7 @@ function ReferralLinkField({ code }: { code: string }) {
 function depositCreditText(deposit: { status: string; commission: number | null }): string {
   if (deposit.commission != null) return `${formatReferralUsd(deposit.commission)} USD credited to the referral wallet`;
   if (deposit.status === 'completed') return 'No referral credit recorded';
-  if (deposit.status === 'pending') return '30% is credited when this deposit completes';
+  if (deposit.status === 'pending') return '40% is credited when this deposit completes';
   return 'Not credited';
 }
 
@@ -69,7 +69,7 @@ function ReferredUsers({ admin }: { admin: ReferralAdminSnapshot }) {
             <p className="text-sm text-muted-foreground">Joined {new Date(user.joined_at).toLocaleString()}</p>
           </div>
           <p className="mt-2 text-sm">
-            Completed deposits {formatReferralUsd(user.deposit_total)} USD · 30% credited {formatReferralUsd(user.commission_total)} USD
+            Completed deposits {formatReferralUsd(user.deposit_total)} USD · 40% credited {formatReferralUsd(user.commission_total)} USD
           </p>
           {user.completed_deposits.length ? (
             <ul className="mt-3 space-y-2 text-sm">
@@ -105,7 +105,7 @@ function AdminReferralCard({ admin, yours, superView }: { admin: ReferralAdminSn
         <div>
           <p className="text-sm text-muted-foreground">Referral wallet</p>
           <p className="text-2xl font-bold" aria-label="Referral wallet balance">{formatReferralUsd(admin.wallet_balance)} USD</p>
-          <p className="text-xs text-muted-foreground">Running total of 30% credits. This is not your trading balance.</p>
+          <p className="text-xs text-muted-foreground">Running total of 40% credits. This is not your trading balance.</p>
         </div>
         <div>
           <p className="text-sm text-muted-foreground">Referred users</p>
@@ -160,7 +160,7 @@ export function ReferralWalletPanel() {
   if (!access.data) return null;
   return (
     <section className="account-activity" aria-label="Referral wallet">
-      <div className="account-section-heading"><h2>Referral wallet</h2><span>Joined users, deposits, and 30% credits</span></div>
+      <div className="account-section-heading"><h2>Referral wallet</h2><span>Joined users, deposits, and 40% credits</span></div>
       {dashboard.isPending ? <p role="status">Loading referral wallet…</p> : null}
       {dashboard.error ? <p role="alert">{referralErrorMessage(dashboard.error)}</p> : null}
       {dashboard.data ? <DashboardBody data={dashboard.data} /> : null}
@@ -191,7 +191,7 @@ export function ReferralDashboard({ code }: { code?: string | undefined }) {
       <p className="section-kicker">REFERRALS</p>
       <h1 className="text-3xl font-bold">Referral dashboard</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        The referral wallet equals the 30% credited from completed USD deposits. Every person who joined through a link is listed with each deposit. Pending and rejected deposits are shown, and 30% is credited once the deposit is completed. This wallet is separate from trading balances and is not a withdrawal.
+        The referral wallet equals the 40% credited from completed USD deposits. Every person who joined through a link is listed with each deposit. Pending and rejected deposits are shown, and 40% is credited once the deposit is completed. This wallet is separate from trading balances and is not a withdrawal.
       </p>
     </header>
     {dashboard.isPending ? <p role="status">Loading referral dashboard…</p> : null}

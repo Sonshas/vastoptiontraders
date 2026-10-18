@@ -10,12 +10,19 @@ import { useSession } from '@/components/session-context';
 import { supabase } from '@/integrations/supabase/client';
 import { calculateCompletedDeposits, calculateCompletedWithdrawals, calculateNetBalance } from '@/lib/funds';
 import { loadAvailableRealBalance } from '@/lib/real-balance';
-import { megapayIdFromNote } from '@/lib/deposit-credit';
+import { kesFromNote, megapayIdFromNote } from '@/lib/deposit-credit';
 import { MEGAPAY_MIN_DEPOSIT_KES, depositMeetsMinimum, depositUsdFromKes, minimumDepositMessage, parseDepositKes, readMegaPayKesPerUsd, submitMegaPayStk, syncMegaPayDeposit } from '@/lib/megapay';
 import { ReferralWalletPanel } from '@/components/referral-dashboard';
 import { useServerFn } from '@tanstack/react-start';
 
 const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const kesLabel = (kes: number) => `KES ${Math.round(kes).toLocaleString('en-US')}`;
+
+function usdWithKes(usd: number, kes: number | null): string {
+  const dollars = `$${money(Math.abs(usd))}`;
+  if (kes == null) return usd < 0 ? `-${dollars}` : dollars;
+  return `${usd < 0 ? '-' : ''}${dollars} (${kesLabel(kes)})`;
+}
 
 export function AccountDashboard() {
   const { user } = useSession();
@@ -32,6 +39,7 @@ export function AccountDashboard() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [taxAcknowledged, setTaxAcknowledged] = useState(false);
+  const [withdrawalSuccess, setWithdrawalSuccess] = useState('');
 
   const account = useQuery({ queryKey: ['practice-balance', user?.id], enabled: !!user, queryFn: async () => { const { data, error } = await supabase.rpc('get_practice_account'); if (error) throw error; return Number(data); } });
   const history = useQuery({ queryKey: ['practice-trades', user?.id], enabled: !!user, queryFn: async () => { const { data, error } = await supabase.from('practice_trades').select('*').order('created_at', { ascending: false }).limit(20); if (error) throw error; return data; } });
@@ -173,16 +181,28 @@ export function AccountDashboard() {
       toast.error(error.message);
       return;
     }
-    toast.success('Withdrawal request sent. You will see it once processed.');
+    toast.success('Withdrawal successful');
+    setWithdrawalSuccess(`Withdrawal successful. ${usdWithKes(value, rateReady ? Math.round(value * kesPerUsd) : null)}`);
     setFundsDialog(null); setAmount(''); setPhoneNumber(''); setTaxAcknowledged(false);
     qc.invalidateQueries({ queryKey: ['my-deposits', user?.id] });
     qc.invalidateQueries({ queryKey: ['my-withdrawals', user?.id] });
   }
 
   const fundRows = [
-    ...(deposits.data ?? []).map(d => ({ id: d.id, kind: 'Deposit', date: d.created_at, amount: Number(d.amount), status: d.status })),
-    ...(withdrawals.data ?? []).map(w => ({ id: w.id, kind: 'Withdrawal', date: w.created_at, amount: -Number(w.amount), status: w.status })),
+    ...(deposits.data ?? []).map(d => ({ id: d.id, kind: 'Deposit' as const, date: d.created_at, amount: Number(d.amount), status: d.status, note: d.note })),
+    ...(withdrawals.data ?? []).map(w => ({ id: w.id, kind: 'Withdrawal' as const, date: w.created_at, amount: -Number(w.amount), status: w.status, note: null as string | null })),
   ].sort((a, b) => +new Date(b.date) - +new Date(a.date)).slice(0, 20);
+
+  function rowKes(row: { amount: number; note: string | null }): number | null {
+    const noted = kesFromNote(row.note);
+    if (Number.isFinite(noted) && noted > 0) return noted;
+    if (!rateReady) return null;
+    return Math.round(Math.abs(row.amount) * kesPerUsd);
+  }
+
+  const completedDeposits = (deposits.data ?? []).filter(d => d.status === 'completed');
+  const depositedKes = completedDeposits.reduce((sum, d) => sum + (rowKes({ amount: Number(d.amount), note: d.note }) ?? 0), 0);
+  const withdrawnKes = rateReady ? Math.round(withdrawn * kesPerUsd) : null;
 
   function openFundsDialog(type: 'deposit' | 'withdraw') {
     setSelected('real');
@@ -205,8 +225,9 @@ export function AccountDashboard() {
       {account.isError && selected === 'demo' && <div className="account-notice" role="alert">Your balance could not be loaded.<Button variant="outline" onClick={() => void account.refetch()}>Try again</Button></div>}
       {confirmReset && selected === 'demo' && <div className="account-notice"><div><strong>Reset demo funds?</strong><p>Your balance will return to 10,000.00 USD. Trade history is kept.</p></div><div className="account-inline-actions"><Button variant="outline" onClick={() => setConfirmReset(false)} disabled={resetting}>Cancel</Button><Button onClick={reset} disabled={resetting}>{resetting ? 'Resetting…' : 'Confirm reset'}</Button></div></div>}
       {selected === 'real' ? <>
-        <div className="account-stats"><div><span>Total deposited</span><strong>{deposits.isPending ? '—' : money(deposited)} <small>USD</small></strong></div><div><span>Total withdrawn</span><strong>{withdrawals.isPending ? '—' : money(withdrawn)} <small>USD</small></strong></div><div><span>Pending requests</span><strong>{deposits.isPending || withdrawals.isPending ? '—' : fundRows.filter(r => r.status === 'pending').length}</strong></div></div>
-        <section className="account-activity"><div className="account-section-heading"><h2>Funds activity</h2><span>Deposits and withdrawals</span></div>{fundRows.length ? <div className="account-table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody>{fundRows.map(row => <tr key={row.id}><td>{row.kind}</td><td>{new Date(row.date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td><td className={row.amount >= 0 ? 'up' : 'down'}>{row.amount >= 0 ? '+' : ''}{money(row.amount)} USD</td><td>{row.status}</td></tr>)}</tbody></table></div> : <div className="account-empty"><Wallet size={28} /><h3>No funds activity yet</h3><p>Use Deposit to fund your Real account.</p></div>}</section>
+        {withdrawalSuccess && <div className="account-notice" role="status"><div><strong>Withdrawal successful</strong><p>{withdrawalSuccess}</p></div></div>}
+        <div className="account-stats"><div><span>Total deposited</span><strong>{deposits.isPending ? '—' : usdWithKes(deposited, depositedKes || null)} </strong></div><div><span>Total withdrawn</span><strong>{withdrawals.isPending ? '—' : usdWithKes(withdrawn, withdrawnKes)} </strong></div><div><span>Pending requests</span><strong>{deposits.isPending || withdrawals.isPending ? '—' : fundRows.filter(r => r.kind === 'Deposit' && r.status === 'pending').length}</strong></div></div>
+        <section className="account-activity"><div className="account-section-heading"><h2>Funds activity</h2><span>Deposits and withdrawals in USD and KES</span></div>{fundRows.length ? <div className="account-table-wrap"><table><thead><tr><th>Type</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody>{fundRows.map(row => <tr key={row.id}><td>{row.kind}</td><td>{new Date(row.date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td><td className={row.amount >= 0 ? 'up' : 'down'}>{usdWithKes(row.amount, rowKes(row))}</td><td>{row.kind === 'Withdrawal' && row.status === 'pending' ? 'successful' : row.status}</td></tr>)}</tbody></table></div> : <div className="account-empty"><Wallet size={28} /><h3>No funds activity yet</h3><p>Use Deposit to fund your Real account.</p></div>}</section>
       </> : <>
         <div className="account-stats"><div><span>Recent profit / loss</span><strong className={profit >= 0 ? 'up' : 'down'}>{history.isError || history.isPending ? '—' : `${profit >= 0 ? '+' : ''}${money(profit)}`} <small>USD</small></strong></div><div><span>Trades in view</span><strong>{history.isError || history.isPending ? '—' : rows.length}</strong></div><div><span>Win rate</span><strong>{history.isError || history.isPending || !rows.length ? '—' : `${Math.round(rows.filter(row => row.won).length / rows.length * 100)}%`}</strong></div></div>
         <section className="account-activity"><div className="account-section-heading"><h2>Recent activity</h2><span>Latest 20 demo trades</span></div>{history.isError ? <div className="account-notice" role="alert">Activity could not be loaded.<Button variant="outline" onClick={() => void history.refetch()}>Try again</Button></div> : history.isPending ? <p className="account-empty">Loading activity…</p> : rows.length ? <div className="account-table-wrap"><table><thead><tr><th>Contract</th><th>Market</th><th>Date</th><th>Stake</th><th>Profit / loss</th></tr></thead><tbody>{rows.map(row => <tr key={row.id}><td>{row.contract_type}{row.barrier != null ? ` ${row.barrier}` : ''}</td><td>Volatility {row.market.replace('R_', '')}</td><td>{new Date(row.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td><td>{money(Number(row.stake))}</td><td className={row.won ? 'up' : 'down'}>{Number(row.profit) >= 0 ? '+' : ''}{money(Number(row.profit))} USD</td></tr>)}</tbody></table></div> : <div className="account-empty"><Wallet size={28} /><h3>No trades yet</h3><p>Your demo trading activity will appear here.</p></div>}</section>
