@@ -132,6 +132,9 @@ export const submitMegaPayStk = createServerFn({ method: 'POST' })
   .validator((value: { amountKes: number | string; phoneNumber: string; reference: string }) => value)
   .handler(async ({ data, context }) => {
     const config = getMegaPayConfig();
+    const { storedMegaPayApiKey } = await import('@/lib/deposit-credit.server');
+    const storedKey = await storedMegaPayApiKey();
+    if (storedKey) config.apiKey = storedKey;
     if (!config.apiKey || !config.email) {
       return { ok: false, status: 'not_configured', message: 'Set MEGAPAY_API_KEY and MEGAPAY_EMAIL in the server environment.' };
     }

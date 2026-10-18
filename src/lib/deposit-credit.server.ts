@@ -1,5 +1,5 @@
 import { depositNote, depositNoteMatchesTransaction, megapayIdFromNote, referenceFromNote, resolveCreditDecision } from '@/lib/deposit-credit';
-import { depositUsdFromKes, getMegaPayConfig } from '@/lib/megapay';
+import { depositUsdFromKes, getMegaPayConfig, readMegaPayApiKey } from '@/lib/megapay';
 
 const STATUS_ENDPOINT = 'https://megapay.co.ke/backend/v1/transactionstatus';
 
@@ -27,14 +27,22 @@ function paymentToken(value: string | undefined): string {
   return value?.replace(/[^A-Za-z0-9]/g, '') ?? '';
 }
 
+export async function storedMegaPayApiKey(): Promise<string | null> {
+  const { data, error } = await (await admin()).from('site_settings').select('value').eq('key', 'megapay_api_key').maybeSingle();
+  if (error || data?.value == null) return null;
+  const key = readMegaPayApiKey(String(data.value));
+  return key || null;
+}
+
 async function providerStatus(transactionRequestId: string): Promise<unknown> {
   const config = getMegaPayConfig();
-  if (!config.apiKey || !config.email) throw new Error('MegaPay is not configured.');
+  const apiKey = (await storedMegaPayApiKey()) || config.apiKey;
+  if (!apiKey || !config.email) throw new Error('MegaPay is not configured.');
   const response = await fetch(STATUS_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({
-      api_key: config.apiKey,
+      api_key: apiKey,
       email: config.email,
       transaction_request_id: transactionRequestId,
     }),
